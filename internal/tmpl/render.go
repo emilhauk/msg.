@@ -1,6 +1,7 @@
 package tmpl
 
 import (
+	"bytes"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -8,6 +9,10 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 
 	"github.com/emilhauk/chat/internal/model"
 )
@@ -42,6 +47,103 @@ func linkify(s string) template.HTML {
 	return template.HTML(b.String())
 }
 
+// codeFenceRe matches fenced code blocks: ```lang\ncode\n``` (lang is optional).
+var codeFenceRe = regexp.MustCompile("(?s)```([a-zA-Z0-9+#-]*)\\n(.*?)```")
+
+// chromaFormatter is shared and CSS-class-based (styles come from style.css).
+var chromaFormatter = chromahtml.New(
+	chromahtml.WithClasses(true),
+	chromahtml.WithLineNumbers(false),
+	chromahtml.PreventSurroundingPre(true), // we emit our own <pre>
+)
+
+// ChromaCSS returns the CSS for the named chroma style (used once at startup
+// to embed the stylesheet). Falls back to "github" if the name is unknown.
+func ChromaCSS(styleName string) (string, error) {
+	s := styles.Get(styleName)
+	if s == nil {
+		s = styles.Fallback
+	}
+	var buf bytes.Buffer
+	if err := chromaFormatter.WriteCSS(&buf, s); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// highlightCode returns syntax-highlighted HTML for a code snippet. lang may
+// be empty, in which case chroma will try to detect the language.
+func highlightCode(lang, code string) template.HTML {
+	var lex = lexers.Get(lang)
+	if lex == nil {
+		lex = lexers.Analyse(code)
+	}
+	if lex == nil {
+		lex = lexers.Fallback
+	}
+
+	iterator, err := lex.Tokenise(nil, code)
+	if err != nil {
+		// Safe fallback: just escape the code.
+		return template.HTML("<code>" + template.HTMLEscapeString(code) + "</code>")
+	}
+
+	var buf bytes.Buffer
+	if err := chromaFormatter.Format(&buf, styles.Fallback, iterator); err != nil {
+		return template.HTML("<code>" + template.HTMLEscapeString(code) + "</code>")
+	}
+	return template.HTML(buf.String())
+}
+
+// renderText transforms raw message text into safe HTML. It handles:
+//   - Fenced code blocks (```lang\ncode\n```) → syntax-highlighted <pre> with copy button
+//   - Plain text segments → linkified, HTML-escaped
+func renderText(s string) template.HTML {
+	var out strings.Builder
+
+	last := 0
+	for _, loc := range codeFenceRe.FindAllStringSubmatchIndex(s, -1) {
+		// loc[0]:loc[1] = full match
+		// loc[2]:loc[3] = lang capture
+		// loc[4]:loc[5] = code capture
+		matchStart, matchEnd := loc[0], loc[1]
+		lang := s[loc[2]:loc[3]]
+		code := s[loc[4]:loc[5]]
+
+		// Emit plain text before this code block.
+		out.WriteString(string(linkify(s[last:matchStart])))
+
+		// Highlighted code.
+		highlighted := highlightCode(lang, code)
+
+		// Wrap in a code-block widget with a copy button.
+		langLabel := lang
+		if langLabel == "" {
+			langLabel = "code"
+		}
+		out.WriteString(`<div class="code-block">`)
+		out.WriteString(`<div class="code-block__header">`)
+		out.WriteString(`<span class="code-block__lang">` + template.HTMLEscapeString(langLabel) + `</span>`)
+		out.WriteString(`<button class="code-block__copy btn--icon" aria-label="Copy code" data-copy-code>`)
+		out.WriteString(`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`)
+		out.WriteString(`</button>`)
+		out.WriteString(`</div>`)
+		out.WriteString(`<pre class="code-block__pre chroma"><code>`)
+		out.WriteString(string(highlighted))
+		out.WriteString(`</code></pre>`)
+		// Hidden element holds raw text for the copy action.
+		out.WriteString(`<textarea class="code-block__raw" aria-hidden="true" tabindex="-1" readonly>` + template.HTMLEscapeString(code) + `</textarea>`)
+		out.WriteString(`</div>`)
+
+		last = matchEnd
+	}
+
+	// Remaining plain text.
+	out.WriteString(string(linkify(s[last:])))
+
+	return template.HTML(out.String())
+}
+
 // presetEmojis is the fixed list of quick-pick reaction emojis shown in the popover.
 var presetEmojiList = []string{"👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "👀", "🙏", "💯", "😍", "🤔"}
 
@@ -66,6 +168,7 @@ func reactionData(msgID, roomID string, reactions []model.Reaction) ReactionsTem
 
 var funcMap = template.FuncMap{
 	"linkify":      linkify,
+	"renderText":   renderText,
 	"presetEmojis": presetEmojis,
 	"reactionData": reactionData,
 }

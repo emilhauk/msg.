@@ -75,6 +75,14 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// Chroma syntax-highlight CSS (generated at startup, served dynamically).
+	chromaCSS := buildChromaCSS()
+	mux.HandleFunc("GET /static/chroma.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write([]byte(chromaCSS))
+	})
+
 	// Static assets.
 	mux.Handle("GET /static/", http.FileServerFS(webSubFS))
 
@@ -103,6 +111,25 @@ func main() {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server: %v", err)
 	}
+}
+
+// buildChromaCSS generates the CSS for syntax highlighting in both light
+// ("github") and dark ("github-dark") themes, wrapped in appropriate
+// @media / [data-theme] selectors so it integrates with the existing theme
+// toggle system.
+func buildChromaCSS() string {
+	light, err := tmpl.ChromaCSS("github")
+	if err != nil {
+		log.Printf("chroma: generate light CSS: %v", err)
+	}
+	dark, err := tmpl.ChromaCSS("github-dark")
+	if err != nil {
+		log.Printf("chroma: generate dark CSS: %v", err)
+	}
+
+	return light + "\n" +
+		"@media (prefers-color-scheme: dark) {\n  :root[data-theme=\"auto\"] {\n" + dark + "\n  }\n}\n" +
+		":root[data-theme=\"dark\"] {\n" + dark + "\n}\n"
 }
 
 func envOrDefault(key, def string) string {

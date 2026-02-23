@@ -14,7 +14,7 @@
         {{.CreatedAt.Format "15:04"}}
       </time>
     </div>
-    <div class="message__text">{{linkify .Text}}</div>
+    <div class="message__text">{{renderText .Text}}</div>
     <div id="preview-{{.ID}}">
     {{if .Unfurl}}
       <div class="unfurl">

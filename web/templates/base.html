@@ -6,6 +6,7 @@
   <title>{{block "title" .}}msg.{{end}}</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/chroma.css">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/htmx-ext-sse@2/sse.js" defer></script>
   <script type="module">
@@ -98,6 +99,27 @@
             !e.target.closest('[data-emoji-toggle]')) {
           container.hidden = true;
         }
+      });
+    }());
+
+    // Click-to-copy for code blocks.
+    (function () {
+      document.addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-copy-code]');
+        if (!btn) return;
+        const block = btn.closest('.code-block');
+        if (!block) return;
+        const raw = block.querySelector('.code-block__raw');
+        const text = raw ? raw.value : (block.querySelector('code') || block).textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.classList.add('code-block__copy--copied');
+          const orig = btn.innerHTML;
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+          setTimeout(function () {
+            btn.classList.remove('code-block__copy--copied');
+            btn.innerHTML = orig;
+          }, 2000);
+        });
       });
     }());
   </script>

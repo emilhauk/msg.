@@ -114,13 +114,20 @@
     if (nearBottom) list.scrollTop = list.scrollHeight;
   });
 
-  // Auto-resize textarea.
+  // Auto-resize textarea; reset height when the form is cleared.
   (function () {
     const ta = document.querySelector('.message-form__textarea');
     if (!ta) return;
     ta.addEventListener('input', function () {
       this.style.height = 'auto';
       this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+    });
+    ta.closest('form').addEventListener('reset', function () {
+      ta.style.height = '';
+      const list = document.getElementById('message-list');
+      if (!list) return;
+      const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+      if (nearBottom) requestAnimationFrame(function () { list.scrollTop = list.scrollHeight; });
     });
   }());
 
