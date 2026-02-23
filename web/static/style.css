@@ -231,6 +231,28 @@ img { display: block; max-width: 100%; }
   gap: .75rem;
 }
 
+/* Update-available hint — shown right of the logo when a deploy is detected */
+.update-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: .35em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: .8125rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color .15s;
+}
+.update-hint:hover { color: var(--color-text); }
+.update-hint svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.update-hint[hidden] { display: none; }
+
 .site-header__username {
   font-size: .875rem;
   color: var(--color-text-muted);

@@ -10,7 +10,8 @@ import (
 
 // SSEHandler handles the SSE endpoint for a room.
 type SSEHandler struct {
-	Redis *redisclient.Client
+	Redis   *redisclient.Client
+	Version string
 }
 
 // HandleSSE streams events to the client via Server-Sent Events.
@@ -35,6 +36,8 @@ func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Send a comment to open the connection immediately.
 	fmt.Fprint(w, ": connected\n\n")
+	// Broadcast the running build version so clients can detect deploys.
+	fmt.Fprintf(w, "event: version\ndata: %s\n\n", h.Version)
 	flusher.Flush()
 
 	sub := h.Redis.Subscribe(r.Context(), roomID)

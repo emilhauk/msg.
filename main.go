@@ -19,6 +19,13 @@ import (
 	"github.com/emilhauk/chat/internal/tmpl"
 )
 
+// buildVersion is the short git SHA injected at build time via:
+//
+//	go build -ldflags "-X main.buildVersion=$(git rev-parse --short HEAD)"
+//
+// Falls back to "dev" for local builds without the flag.
+var buildVersion = "dev"
+
 //go:embed web
 var webFS embed.FS
 
@@ -69,7 +76,7 @@ func main() {
 	roomsHandler := &handler.RoomsHandler{Redis: redis, Renderer: renderer}
 	messagesHandler := &handler.MessagesHandler{Redis: redis, Renderer: renderer}
 	reactionsHandler := &handler.ReactionsHandler{Redis: redis, Renderer: renderer}
-	sseHandler := &handler.SSEHandler{Redis: redis}
+	sseHandler := &handler.SSEHandler{Redis: redis, Version: buildVersion}
 
 	authMW := middleware.RequireAuth(redis, sessionSecret)
 

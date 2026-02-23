@@ -31,6 +31,13 @@
           <text class="logo__wordmark" x="27" y="17" font-family="ui-sans-serif,system-ui,-apple-system,sans-serif" font-size="14" font-weight="700" letter-spacing="-0.03em">msg.</text>
         </svg>
       </a>
+      <button id="update-hint" class="update-hint" hidden onclick="window.location.reload()" aria-label="Update available — click to reload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        Update available
+      </button>
       {{block "header-right" .}}{{end}}
     </div>
   </header>

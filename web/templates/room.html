@@ -99,10 +99,13 @@
   // determine which reaction pills should be marked as active.
   var __currentUserID = {{.User.ID | printf "%q"}};
 
-  // Auto-scroll to bottom on initial load.
+  // Auto-scroll to bottom on initial load — instant, no animation.
   (function () {
     const list = document.getElementById('message-list');
-    if (list) list.scrollTop = list.scrollHeight;
+    if (!list) return;
+    list.style.scrollBehavior = 'auto';
+    list.scrollTop = list.scrollHeight;
+    list.style.scrollBehavior = '';
   }());
 
   // Auto-scroll to bottom when a new SSE message arrives, but only if
@@ -331,11 +334,45 @@
     });
   }
 
-  // Second EventSource: handles unfurl and reaction SSE events.
+  // Second EventSource: handles unfurl, reaction, and version SSE events.
   // HTMX manages its own EventSource for "message" events; custom event types
   // use a dedicated connection so we can use native addEventListener.
   (function () {
     const es = new EventSource('/rooms/{{.Room.ID}}/events');
+
+    // -- Auto-reload on new deploy ------------------------------------------
+    // On first connect the server sends the running build SHA; on reconnect
+    // after a deploy it sends a different SHA. We react based on focus state:
+    //   • tab not focused  → reload immediately (silent, user won't notice)
+    //   • after next send  → reload once the message form posts successfully
+    //   • otherwise        → show the #update-hint button near the logo
+    var __serverVersion = null;
+    var __pendingReload  = false;
+
+    es.addEventListener('version', function (e) {
+      if (__serverVersion === null) {
+        __serverVersion = e.data;
+        return;
+      }
+      if (e.data === __serverVersion) return;
+
+      if (!document.hasFocus()) {
+        window.location.reload();
+        return;
+      }
+      __pendingReload = true;
+      var hint = document.getElementById('update-hint');
+      if (hint) hint.hidden = false;
+    });
+
+    // Reload after a successful message send if a deploy was detected.
+    var form = document.querySelector('.message-form');
+    if (form) {
+      form.addEventListener('htmx:afterRequest', function () {
+        if (__pendingReload) window.location.reload();
+      });
+    }
+    // -- End auto-reload ----------------------------------------------------
 
     es.addEventListener('unfurl', function (e) {
       // data format: "<msgId>:<html>"
