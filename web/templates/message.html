@@ -1,0 +1,32 @@
+{{define "message.html"}}
+<article class="message" id="msg-{{.ID}}">
+  <div class="message__avatar">
+    {{if and .User .User.AvatarURL}}
+    <img class="avatar" src="{{.User.AvatarURL}}" alt="{{.User.Name}}" width="36" height="36" loading="lazy">
+    {{else}}
+    <div class="avatar avatar--placeholder">{{if .User}}{{slice .User.Name 0 1}}{{else}}?{{end}}</div>
+    {{end}}
+  </div>
+  <div class="message__body">
+    <div class="message__meta">
+      <span class="message__author">{{if .User}}{{.User.Name}}{{else}}Unknown{{end}}</span>
+      <time class="message__time" datetime="{{.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}">
+        {{.CreatedAt.Format "15:04"}}
+      </time>
+    </div>
+    <div class="message__text">{{linkify .Text}}</div>
+    <div id="preview-{{.ID}}">
+    {{if .Unfurl}}
+      <div class="unfurl">
+        {{if .Unfurl.Image}}<img class="unfurl__image" src="{{.Unfurl.Image}}" alt="" loading="lazy">{{end}}
+        <div class="unfurl__body">
+          <a class="unfurl__title" href="{{.Unfurl.URL}}" target="_blank" rel="noopener noreferrer">{{.Unfurl.Title}}</a>
+          {{if .Unfurl.Description}}<p class="unfurl__desc">{{.Unfurl.Description}}</p>{{end}}
+        </div>
+      </div>
+    {{end}}
+    </div>
+    {{template "reactions.html" (reactionData .ID .RoomID .Reactions)}}
+  </div>
+</article>
+{{end}}

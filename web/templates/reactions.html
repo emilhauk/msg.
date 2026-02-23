@@ -1,0 +1,46 @@
+{{define "reactions.html"}}
+<div id="reactions-{{.MsgID}}" class="reactions">
+  {{range .Reactions}}
+  <button class="reaction-pill{{if .ReactedByMe}} reaction-pill--active{{end}}"
+          hx-post="/rooms/{{$.RoomID}}/messages/{{$.MsgID}}/reactions"
+          hx-vals='{"emoji":"{{.Emoji}}"}'
+          hx-swap="none"
+          data-emoji="{{.Emoji}}"
+          title="{{.Emoji}}"
+          type="button">
+    <span class="reaction-pill__emoji">{{.Emoji}}</span>
+    <span class="reaction-pill__count">{{.Count}}</span>
+  </button>
+  {{end}}
+  <div class="reaction-add-wrap">
+    <button class="reaction-add btn btn--icon"
+            type="button"
+            aria-label="Add reaction"
+            data-reaction-add="{{.MsgID}}">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <line x1="15" y1="9" x2="15.01" y2="9"/>
+        <line x1="12" y1="5" x2="12" y2="8"/>
+        <line x1="10.5" y1="6.5" x2="13.5" y2="6.5"/>
+      </svg>
+    </button>
+    <div class="reaction-preset-popover" data-reaction-popover="{{.MsgID}}" hidden>
+      {{$msgID := .MsgID}}{{$roomID := .RoomID}}
+      {{range presetEmojis}}
+      <button class="reaction-preset__btn"
+              hx-post="/rooms/{{$roomID}}/messages/{{$msgID}}/reactions"
+              hx-vals='{"emoji":"{{.}}"}'
+              hx-swap="none"
+              type="button"
+              aria-label="{{.}}">{{.}}</button>
+      {{end}}
+      <button class="reaction-preset__more"
+              type="button"
+              aria-label="More emojis"
+              data-reaction-more="{{.MsgID}}">&#8230;</button>
+    </div>
+  </div>
+</div>
+{{end}}

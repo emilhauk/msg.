@@ -1,0 +1,105 @@
+{{define "base.html"}}<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{block "title" .}}msg.{{end}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/htmx-ext-sse@2/sse.js" defer></script>
+  <script type="module">
+    import { Database } from 'https://cdn.jsdelivr.net/npm/emoji-picker-element/+esm';
+    // Expose Database so room-page module scripts can instantiate it without
+    // re-importing the same URL (which would be a separate module instance).
+    window.__EmojiDatabase = Database;
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a href="/" class="site-header__logo" aria-label="msg.">
+        <svg class="logo" viewBox="0 0 64 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- Speech-bubble icon -->
+          <rect class="logo__bubble" x="0" y="0" width="22" height="16" rx="4"/>
+          <circle class="logo__dot" cx="5.5"  cy="8" r="1.75"/>
+          <circle class="logo__dot" cx="11"   cy="8" r="1.75"/>
+          <circle class="logo__dot" cx="16.5" cy="8" r="1.75"/>
+          <path class="logo__tail" d="M4 16 L2 20 L9 16" stroke-linejoin="round"/>
+          <!-- Wordmark: "msg." -->
+          <text class="logo__wordmark" x="27" y="17" font-family="ui-sans-serif,system-ui,-apple-system,sans-serif" font-size="14" font-weight="700" letter-spacing="-0.03em">msg.</text>
+        </svg>
+      </a>
+      {{block "header-right" .}}{{end}}
+    </div>
+  </header>
+
+  <main class="site-main">
+    {{block "content" .}}{{end}}
+  </main>
+
+  {{/* Emoji picker lives outside swappable regions */}}
+  <div id="emoji-picker-container" hidden>
+    <emoji-picker></emoji-picker>
+  </div>
+
+  <script>
+    // Theme toggle: persist choice in localStorage, fall back to OS preference.
+    (function () {
+      const root = document.documentElement;
+      const stored = localStorage.getItem('theme');
+      if (stored) root.setAttribute('data-theme', stored);
+
+      document.addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-theme-toggle]');
+        if (!btn) return;
+        const current = root.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : current === 'light' ? 'auto' : 'dark';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        btn.setAttribute('aria-label', 'Theme: ' + next);
+      });
+    }());
+
+    // Emoji picker toggle + insertion.
+    (function () {
+      const container = document.getElementById('emoji-picker-container');
+      document.addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-emoji-toggle]');
+        if (!btn) return;
+        container.hidden = !container.hidden;
+        if (!container.hidden) {
+          // Position near button.
+          const rect = btn.getBoundingClientRect();
+          container.style.position = 'fixed';
+          container.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+          container.style.left = rect.left + 'px';
+          container.style.zIndex = 999;
+        }
+      });
+
+      document.addEventListener('emoji-click', function (e) {
+        const textarea = document.querySelector('.message-form__textarea');
+        if (textarea) {
+          const pos = textarea.selectionStart ?? textarea.value.length;
+          const before = textarea.value.slice(0, pos);
+          const after = textarea.value.slice(pos);
+          textarea.value = before + e.detail.unicode + after;
+          textarea.focus();
+          textarea.selectionStart = textarea.selectionEnd = pos + e.detail.unicode.length;
+        }
+        container.hidden = true;
+      });
+
+      // Close picker on outside click.
+      document.addEventListener('click', function (e) {
+        if (!container.hidden &&
+            !e.target.closest('#emoji-picker-container') &&
+            !e.target.closest('[data-emoji-toggle]')) {
+          container.hidden = true;
+        }
+      });
+    }());
+  </script>
+</body>
+</html>
+{{end}}

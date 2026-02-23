@@ -1,0 +1,13 @@
+{{define "history.html"}}
+{{/* Prepend a new sentinel if there are more pages */}}
+{{if .HasMore}}
+<div class="scroll-sentinel"
+     hx-get="/rooms/{{.RoomID}}/messages?before={{.OldestMS}}&limit=50"
+     hx-trigger="revealed"
+     hx-swap="beforebegin"></div>
+{{end}}
+
+{{range .Messages}}
+  {{template "message.html" .}}
+{{end}}
+{{end}}

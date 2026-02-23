@@ -1,0 +1,466 @@
+{{define "room.html"}}
+{{template "base.html" .}}
+{{end}}
+
+{{define "title"}}{{.Room.Name}} — msg.{{end}}
+
+{{define "header-right"}}
+<div class="site-header__actions">
+  <button class="btn btn--icon" data-theme-toggle aria-label="Toggle theme">
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="5"/>
+      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+    </svg>
+  </button>
+  <span class="site-header__username">{{.User.Name}}</span>
+  <form method="post" action="/auth/logout" style="display:inline">
+    <button class="btn btn--ghost btn--sm" type="submit">Sign out</button>
+  </form>
+</div>
+{{end}}
+
+{{define "content"}}
+<div class="room-layout">
+  {{/* room-sidebar: hidden until multi-room support is added
+  <aside class="room-sidebar">
+    <h2 class="room-sidebar__heading">Rooms</h2>
+    <nav>
+      <a class="room-sidebar__link room-sidebar__link--active" href="/rooms/{{.Room.ID}}">
+        # {{.Room.Name}}
+      </a>
+    </nav>
+  </aside>
+  */}}
+
+  <section class="room-main"
+           hx-ext="sse"
+           sse-connect="/rooms/{{.Room.ID}}/events">
+
+    <header class="room-main__header">
+      <h1 class="room-main__title"># {{.Room.Name}}</h1>
+    </header>
+
+    <div class="message-list" id="message-list">
+      {{/* Infinite scroll sentinel */}}
+      {{if .OldestMS}}
+      <div class="scroll-sentinel"
+           hx-get="/rooms/{{.Room.ID}}/messages?before={{.OldestMS}}&limit=50"
+           hx-trigger="revealed"
+           hx-swap="beforebegin"></div>
+      {{end}}
+
+      {{range .Messages}}
+        {{template "message.html" .}}
+      {{end}}
+
+      {{/* SSE target: new messages appended here */}}
+      <div id="sse-message-target"
+           hx-swap="beforebegin"
+           sse-swap="message"></div>
+    </div>
+
+    {{/* Emoji shortcode autocomplete dropdown */}}
+    <ul id="emoji-autocomplete" class="emoji-autocomplete" role="listbox" aria-label="Emoji suggestions" hidden></ul>
+
+    <form class="message-form"
+          hx-post="/rooms/{{.Room.ID}}/messages"
+          hx-swap="none"
+          hx-on::after-request="this.reset()">
+      <div class="message-form__bar">
+        <button type="button" class="btn btn--icon message-form__emoji-btn" data-emoji-toggle aria-label="Emoji picker">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+            <line x1="9" y1="9" x2="9.01" y2="9"/>
+            <line x1="15" y1="9" x2="15.01" y2="9"/>
+          </svg>
+        </button>
+        <textarea
+          class="message-form__textarea"
+          name="text"
+          placeholder="Message #{{.Room.Name}}"
+          rows="1"
+          autocomplete="off"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey&&document.getElementById('emoji-autocomplete').hidden){event.preventDefault();this.closest('form').requestSubmit();}"
+        ></textarea>
+        <button class="btn btn--primary message-form__send" type="submit" aria-label="Send">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+  // Current authenticated user ID — used by the reaction SSE handler to
+  // determine which reaction pills should be marked as active.
+  var __currentUserID = {{.User.ID | printf "%q"}};
+
+  // Auto-scroll to bottom on initial load.
+  (function () {
+    const list = document.getElementById('message-list');
+    if (list) list.scrollTop = list.scrollHeight;
+  }());
+
+  // Auto-scroll to bottom when a new SSE message arrives, but only if
+  // the user is already near the bottom.
+  document.body.addEventListener('htmx:sseMessage', function () {
+    const list = document.getElementById('message-list');
+    if (!list) return;
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+    if (nearBottom) list.scrollTop = list.scrollHeight;
+  });
+
+  // Auto-resize textarea.
+  (function () {
+    const ta = document.querySelector('.message-form__textarea');
+    if (!ta) return;
+    ta.addEventListener('input', function () {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+    });
+  }());
+
+  // ---- Emoji shortcode autocomplete ----
+  // Waits for the base.html module to expose window.__EmojiDatabase, then
+  // wires up :shortcode → dropdown → insert behaviour on the message textarea.
+  (function () {
+    // Poll until the ESM module has run (usually <50 ms after DOMContentLoaded).
+    function waitForDb(cb) {
+      if (window.__EmojiDatabase) { cb(new window.__EmojiDatabase()); return; }
+      const t = setInterval(function () {
+        if (window.__EmojiDatabase) { clearInterval(t); cb(new window.__EmojiDatabase()); }
+      }, 50);
+    }
+
+    waitForDb(function (db) {
+      const ta      = document.querySelector('.message-form__textarea');
+      const list    = document.getElementById('emoji-autocomplete');
+      if (!ta || !list) return;
+
+      let activeIdx = -1;    // currently highlighted item index
+      let matchStart = -1;   // index of the leading ':' in textarea.value
+      let matchEnd   = -1;   // index one past the last typed char
+
+      // ------------------------------------------------------------------
+      // Helpers
+      // ------------------------------------------------------------------
+
+      function getItems() { return list.querySelectorAll('.emoji-autocomplete__item'); }
+
+      function highlight(idx) {
+        const items = getItems();
+        items.forEach(function (el, i) {
+          el.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+        });
+        activeIdx = idx;
+      }
+
+      function hideDropdown() {
+        list.hidden = true;
+        list.innerHTML = '';
+        activeIdx  = -1;
+        matchStart = -1;
+        matchEnd   = -1;
+      }
+
+      function positionDropdown() {
+        const rect = ta.getBoundingClientRect();
+        list.style.left   = rect.left + 'px';
+        list.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        list.style.width  = rect.width + 'px';
+      }
+
+      function insertEmoji(unicode) {
+        if (matchStart < 0) return;
+        const before = ta.value.slice(0, matchStart);
+        const after  = ta.value.slice(matchEnd);
+        ta.value = before + unicode + after;
+        // Place cursor right after the inserted character.
+        const pos = matchStart + unicode.length;
+        ta.selectionStart = ta.selectionEnd = pos;
+        // Trigger auto-resize.
+        ta.dispatchEvent(new Event('input'));
+        ta.focus();
+        hideDropdown();
+      }
+
+      // ------------------------------------------------------------------
+      // Find the ':word' fragment immediately behind the cursor.
+      // Returns { query, start, end } or null.
+      // ------------------------------------------------------------------
+      function getFragment() {
+        const cursor = ta.selectionStart;
+        const text   = ta.value.slice(0, cursor);
+        // Walk backwards: allow letters, digits, underscore, hyphen, plus.
+        let i = cursor - 1;
+        while (i >= 0 && /[\w\-+]/.test(text[i])) i--;
+        // The character at i must be ':'.
+        if (i < 0 || text[i] !== ':') return null;
+        const query = text.slice(i + 1);   // everything after the ':'
+        if (query.length < 2) return null;
+        return { query: query, start: i, end: cursor };
+      }
+
+      // ------------------------------------------------------------------
+      // Input handler — search and render results
+      // ------------------------------------------------------------------
+      ta.addEventListener('input', function () {
+        const frag = getFragment();
+        if (!frag) { hideDropdown(); return; }
+
+        matchStart = frag.start;
+        matchEnd   = frag.end;
+
+        db.getEmojiBySearchQuery(frag.query).then(function (results) {
+          // Re-check cursor hasn't moved since the async call.
+          const current = getFragment();
+          if (!current || current.query !== frag.query) return;
+
+          if (!results || results.length === 0) { hideDropdown(); return; }
+
+          const top = results.slice(0, 8);
+          list.innerHTML = top.map(function (emoji, idx) {
+            const name = emoji.shortcodes && emoji.shortcodes[0]
+              ? emoji.shortcodes[0]
+              : (emoji.annotation || '');
+            return '<li class="emoji-autocomplete__item"' +
+              ' role="option"' +
+              ' aria-selected="false"' +
+              ' data-unicode="' + emoji.unicode + '"' +
+              ' data-idx="' + idx + '">' +
+              '<span class="emoji-autocomplete__glyph">' + emoji.unicode + '</span>' +
+              '<span class="emoji-autocomplete__name">:' + name + ':</span>' +
+              '</li>';
+          }).join('');
+
+          positionDropdown();
+          list.hidden = false;
+          highlight(-1);
+
+          list.querySelectorAll('.emoji-autocomplete__item').forEach(function (el) {
+            el.addEventListener('mousedown', function (e) {
+              // mousedown fires before blur; prevent textarea losing focus.
+              e.preventDefault();
+              insertEmoji(el.dataset.unicode);
+            });
+            el.addEventListener('mouseover', function () {
+              highlight(parseInt(el.dataset.idx, 10));
+            });
+          });
+        }).catch(function () { hideDropdown(); });
+      });
+
+      // ------------------------------------------------------------------
+      // Keyboard navigation
+      // ------------------------------------------------------------------
+      ta.addEventListener('keydown', function (e) {
+        if (list.hidden) return;
+        const items = getItems();
+        const count = items.length;
+        if (count === 0) return;
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          highlight((activeIdx + 1) % count);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          highlight((activeIdx - 1 + count) % count);
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+          const target = activeIdx >= 0 ? items[activeIdx] : items[0];
+          if (target) {
+            e.preventDefault();
+            insertEmoji(target.dataset.unicode);
+          }
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          hideDropdown();
+        }
+      });
+
+      // Close on click outside.
+      document.addEventListener('click', function (e) {
+        if (!list.hidden && !list.contains(e.target) && e.target !== ta) {
+          hideDropdown();
+        }
+      });
+
+      // Close when textarea loses focus (defer so mousedown on item fires first).
+      ta.addEventListener('blur', function () {
+        setTimeout(function () { if (!list.hidden) hideDropdown(); }, 150);
+      });
+    });
+  }());
+
+  // __myReactions tracks which emojis the current user has reacted with,
+  // keyed by message ID. Populated from the server-rendered DOM on load and
+  // kept up-to-date as reaction SSE events arrive.
+  // { [msgId]: Set<emoji> }
+  var __myReactions = (function () {
+    var map = {};
+    document.querySelectorAll('.reactions').forEach(function (bar) {
+      var msgId = bar.id.replace('reactions-', '');
+      bar.querySelectorAll('.reaction-pill--active').forEach(function (pill) {
+        var emoji = pill.dataset.emoji;
+        if (!emoji) return;
+        if (!map[msgId]) map[msgId] = new Set();
+        map[msgId].add(emoji);
+      });
+    });
+    return map;
+  }());
+
+  // applyMyReactions marks the current user's active emojis on a reaction bar element.
+  function applyMyReactions(barEl, msgId) {
+    var mine = __myReactions[msgId];
+    if (!mine || mine.size === 0) return;
+    barEl.querySelectorAll('.reaction-pill').forEach(function (pill) {
+      if (mine.has(pill.dataset.emoji)) {
+        pill.classList.add('reaction-pill--active');
+      }
+    });
+  }
+
+  // Second EventSource: handles unfurl and reaction SSE events.
+  // HTMX manages its own EventSource for "message" events; custom event types
+  // use a dedicated connection so we can use native addEventListener.
+  (function () {
+    const es = new EventSource('/rooms/{{.Room.ID}}/events');
+
+    es.addEventListener('unfurl', function (e) {
+      // data format: "<msgId>:<html>"
+      const colon = e.data.indexOf(':');
+      if (colon < 0) return;
+      const msgId = e.data.slice(0, colon);
+      const html  = e.data.slice(colon + 1);
+      const target = document.getElementById('preview-' + msgId);
+      if (target) {
+        const list = document.getElementById('message-list');
+        const nearBottom = list && list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+        target.innerHTML = html;
+        if (nearBottom) requestAnimationFrame(function () { list.scrollTop = list.scrollHeight; });
+      }
+    });
+
+    es.addEventListener('reaction', function (e) {
+      // data is a JSON object: { msgId, reactorId, reactedEmojis, html }
+      var ev;
+      try { ev = JSON.parse(e.data); } catch (_) { return; }
+      const target = document.getElementById('reactions-' + ev.msgId);
+      if (!target) return;
+
+      // If the reactor is the current user, update our local reaction map.
+      if (ev.reactorId === __currentUserID) {
+        __myReactions[ev.msgId] = new Set(ev.reactedEmojis || []);
+      }
+
+      // Swap in the neutral HTML (no active state baked in).
+      const temp = document.createElement('div');
+      temp.innerHTML = ev.html;
+      const newEl = temp.firstElementChild;
+      if (!newEl) return;
+
+      // Re-apply the current user's active styling from our local map.
+      applyMyReactions(newEl, ev.msgId);
+
+      target.replaceWith(newEl);
+      // Re-process HTMX on the new element so hx-post works on the pills.
+      htmx.process(newEl);
+    });
+
+    // Clean up when the page unloads.
+    window.addEventListener('pagehide', function () { es.close(); });
+  }());
+
+  // ---- Reaction preset popover ----
+  (function () {
+    let openPopover = null;   // currently visible popover element
+
+    function closeAll() {
+      if (openPopover) {
+        openPopover.hidden = true;
+        openPopover = null;
+      }
+    }
+
+    // Toggle the popover when the add-reaction button is clicked.
+    document.addEventListener('click', function (e) {
+      // "Add reaction" button
+      const addBtn = e.target.closest('[data-reaction-add]');
+      if (addBtn) {
+        e.stopPropagation();
+        const msgId = addBtn.dataset.reactionAdd;
+        const popover = document.querySelector('[data-reaction-popover="' + msgId + '"]');
+        if (!popover) return;
+        if (openPopover && openPopover !== popover) closeAll();
+        popover.hidden = !popover.hidden;
+        openPopover = popover.hidden ? null : popover;
+        return;
+      }
+
+      // "More emojis" button inside a popover — open the global emoji picker
+      // positioned relative to the triggering message.
+      const moreBtn = e.target.closest('[data-reaction-more]');
+      if (moreBtn) {
+        e.stopPropagation();
+        const msgId = moreBtn.dataset.reactionMore;
+        closeAll();
+        const picker = document.getElementById('emoji-picker-container');
+        if (!picker) return;
+        // Tag the picker with the target msgId so the emoji-click handler knows
+        // which message to react to.
+        picker.dataset.reactionTarget = msgId;
+        picker.dataset.mode = 'reaction';
+        picker.hidden = false;
+        return;
+      }
+
+      // Any preset emoji button — close popover after HTMX fires.
+      const presetBtn = e.target.closest('.reaction-preset__btn');
+      if (presetBtn) {
+        closeAll();
+        return;
+      }
+
+      // Click outside — close.
+      if (!e.target.closest('.reaction-add-wrap') && !e.target.closest('#emoji-picker-container')) {
+        closeAll();
+        const picker = document.getElementById('emoji-picker-container');
+        if (picker && picker.dataset.mode === 'reaction') {
+          picker.hidden = true;
+          delete picker.dataset.reactionTarget;
+          delete picker.dataset.mode;
+        }
+      }
+    });
+
+    // Wire the global emoji-picker-element to also support reaction mode.
+    // When the picker is in reaction mode, emoji-click should POST a reaction
+    // instead of appending to the textarea.
+    const pickerEl = document.querySelector('emoji-picker');
+    if (pickerEl) {
+      pickerEl.addEventListener('emoji-click', function (ev) {
+        const container = document.getElementById('emoji-picker-container');
+        if (!container || container.dataset.mode !== 'reaction') return;
+        const msgId = container.dataset.reactionTarget;
+        if (!msgId) return;
+        const emoji = ev.detail.unicode;
+        container.hidden = true;
+        delete container.dataset.reactionTarget;
+        delete container.dataset.mode;
+        // POST the reaction via fetch (no HTMX form available here).
+        const roomId = '{{.Room.ID}}';
+        const body = new URLSearchParams({ emoji: emoji });
+        fetch('/rooms/' + roomId + '/messages/' + msgId + '/reactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        });
+      }, { capture: true });
+    }
+  }());
+</script>
+{{end}}

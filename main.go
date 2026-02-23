@@ -1,0 +1,125 @@
+package main
+
+import (
+	"context"
+	"embed"
+	"encoding/hex"
+	"fmt"
+	"io/fs"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/emilhauk/chat/internal/auth"
+	"github.com/emilhauk/chat/internal/handler"
+	"github.com/emilhauk/chat/internal/middleware"
+	"github.com/emilhauk/chat/internal/model"
+	redisclient "github.com/emilhauk/chat/internal/redis"
+	"github.com/emilhauk/chat/internal/tmpl"
+)
+
+//go:embed web
+var webFS embed.FS
+
+func main() {
+	redisURL := envOrDefault("REDIS_URL", "redis://localhost:6379")
+	sessionSecretHex := envOrDefault("SESSION_SECRET", "0000000000000000000000000000000000000000000000000000000000000000")
+	baseURL := envOrDefault("BASE_URL", "http://localhost:8080")
+	port := envOrDefault("PORT", "8080")
+	openRegistration := strings.EqualFold(envOrDefault("OPEN_REGISTRATION", "false"), "true")
+	allowList := parseAllowList(envOrDefault("ALLOW_LIST", ""))
+
+	sessionSecret, err := hex.DecodeString(sessionSecretHex)
+	if err != nil || len(sessionSecret) == 0 {
+		log.Fatalf("invalid SESSION_SECRET: must be a hex string")
+	}
+
+	redis, err := redisclient.New(redisURL)
+	if err != nil {
+		log.Fatalf("connect to redis: %v", err)
+	}
+	defer redis.Close()
+
+	// Seed default room.
+	if err := redis.SeedRoom(context.Background(), model.Room{ID: "bemro", Name: "Project BEMRØ"}); err != nil {
+		log.Fatalf("seed room: %v", err)
+	}
+
+	// Templates.
+	webSubFS, err := fs.Sub(webFS, "web")
+	if err != nil {
+		log.Fatalf("sub fs: %v", err)
+	}
+	renderer, err := tmpl.New(webSubFS)
+	if err != nil {
+		log.Fatalf("parse templates: %v", err)
+	}
+
+	// Handlers.
+	authHandler := &auth.Handler{
+		Redis:              redis,
+		SessionSecret:      sessionSecret,
+		BaseURL:            baseURL,
+		OpenRegistration:   openRegistration,
+		AllowList:          allowList,
+		GitHubClientID:     envOrDefault("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret: envOrDefault("GITHUB_CLIENT_SECRET", ""),
+	}
+	roomsHandler := &handler.RoomsHandler{Redis: redis, Renderer: renderer}
+	messagesHandler := &handler.MessagesHandler{Redis: redis, Renderer: renderer}
+	reactionsHandler := &handler.ReactionsHandler{Redis: redis, Renderer: renderer}
+	sseHandler := &handler.SSEHandler{Redis: redis}
+
+	authMW := middleware.RequireAuth(redis, sessionSecret)
+
+	mux := http.NewServeMux()
+
+	// Static assets.
+	mux.Handle("GET /static/", http.FileServerFS(webSubFS))
+
+	// Auth routes (no auth required).
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		var errMsg string
+		if r.URL.Query().Get("error") == "access_denied" {
+			errMsg = "You are not on the access list. Contact the administrator to request access."
+		}
+		renderer.Render(w, http.StatusOK, "login.html", map[string]any{"ErrorMsg": errMsg})
+	})
+	mux.HandleFunc("GET /auth/{provider}", authHandler.HandleLogin)
+	mux.HandleFunc("GET /auth/{provider}/callback", authHandler.HandleCallback)
+	mux.HandleFunc("POST /auth/logout", authHandler.HandleLogout)
+
+	// Protected routes.
+	mux.Handle("GET /", authMW(http.HandlerFunc(roomsHandler.HandleRoot)))
+	mux.Handle("GET /rooms/{id}", authMW(http.HandlerFunc(roomsHandler.HandleRoom)))
+	mux.Handle("POST /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandlePost)))
+	mux.Handle("GET /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandleHistory)))
+	mux.Handle("GET /rooms/{id}/events", authMW(http.HandlerFunc(sseHandler.HandleSSE)))
+	mux.Handle("POST /rooms/{id}/messages/{msgID}/reactions", authMW(http.HandlerFunc(reactionsHandler.HandleToggle)))
+
+	addr := ":" + port
+	fmt.Printf("listening on %s\n", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatalf("server: %v", err)
+	}
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// parseAllowList splits a comma-separated list of emails, lowercases and trims
+// each entry, and discards empty strings.
+func parseAllowList(raw string) []string {
+	var list []string
+	for _, entry := range strings.Split(raw, ",") {
+		if e := strings.ToLower(strings.TrimSpace(entry)); e != "" {
+			list = append(list, e)
+		}
+	}
+	return list
+}

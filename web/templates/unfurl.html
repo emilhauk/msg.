@@ -1,0 +1,11 @@
+{{define "unfurl.html"}}
+<div class="unfurl">
+  {{if .Unfurl.Image}}<img class="unfurl__image" src="{{.Unfurl.Image}}" alt="" loading="lazy">{{end}}
+  <div class="unfurl__body">
+    <a class="unfurl__title" href="{{.Unfurl.URL}}" target="_blank" rel="noopener noreferrer">{{.Unfurl.Title}}</a>
+    {{if .Unfurl.Description}}<p class="unfurl__desc">{{.Unfurl.Description}}</p>{{end}}
+    <span class="unfurl__domain">{{.Unfurl.URL}}</span>
+  </div>
+</div>
+{{end}}
+

@@ -1,0 +1,19 @@
+[build]
+  cmd = "go build -o ./tmp/main ."
+  bin = "./tmp/main"
+  full_bin = "./tmp/main"
+  include_ext = ["go", "html", "css", "js"]
+  exclude_dir = ["tmp", ".git", ".idea"]
+  delay = 500
+
+[log]
+  time = false
+
+[color]
+  main     = "magenta"
+  watcher  = "cyan"
+  build    = "yellow"
+  runner   = "green"
+
+[misc]
+  clean_on_exit = true
