@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>{{block "title" .}}msg.{{end}}</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="/static/chroma.css">
+  <link rel="stylesheet" href="/static/style.css?v={{.BuildVersion}}">
+  <link rel="stylesheet" href="/static/chroma.css?v={{.BuildVersion}}">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/htmx-ext-sse@2/sse.js" defer></script>
   <script type="module">

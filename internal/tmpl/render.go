@@ -175,7 +175,14 @@ var funcMap = template.FuncMap{
 
 // Renderer holds parsed templates.
 type Renderer struct {
-	templates map[string]*template.Template
+	templates    map[string]*template.Template
+	BuildVersion string
+}
+
+// pageData wraps any template data to inject global fields (e.g. BuildVersion).
+type pageData struct {
+	BuildVersion string
+	Data         any
 }
 
 // New parses all templates from the given filesystem.
@@ -261,7 +268,8 @@ func (r *Renderer) Render(w http.ResponseWriter, status int, name string, data a
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := t.ExecuteTemplate(w, name, data); err != nil {
+	wrapped := pageData{BuildVersion: r.BuildVersion, Data: data}
+	if err := t.ExecuteTemplate(w, name, wrapped); err != nil {
 		// Headers already sent; log to stderr.
 		fmt.Printf("tmpl: execute %s: %v\n", name, err)
 	}
@@ -282,6 +290,8 @@ func (r *Renderer) RenderError(w http.ResponseWriter, status int, data ErrorData
 }
 
 // RenderString executes the named template and returns the result as a string.
+// Partials rendered via RenderString (SSE fragments) do not use the base layout
+// so they do not need BuildVersion — data is passed through unwrapped.
 func (r *Renderer) RenderString(name string, data any) (string, error) {
 	t, ok := r.templates[name]
 	if !ok {

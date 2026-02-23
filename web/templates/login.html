@@ -10,8 +10,8 @@
     <h1 class="login-card__title">Welcome to msg.</h1>
     <p class="login-card__subtitle">Sign in to join the conversation</p>
 
-    {{if .ErrorMsg}}
-    <p class="login-card__error">{{.ErrorMsg}}</p>
+    {{if .Data.ErrorMsg}}
+    <p class="login-card__error">{{.Data.ErrorMsg}}</p>
     {{end}}
 
     <div class="login-card__providers">

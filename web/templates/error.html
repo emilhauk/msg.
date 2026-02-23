@@ -2,12 +2,12 @@
 {{template "base.html" .}}
 {{end}}
 
-{{define "title"}}{{.Title}} — msg.{{end}}
+{{define "title"}}{{.Data.Title}} — msg.{{end}}
 
 {{define "header-right"}}
-{{if .User}}
+{{if .Data.User}}
 <div class="site-header__actions">
-  <span class="site-header__username">{{.User.Name}}</span>
+  <span class="site-header__username">{{.Data.User.Name}}</span>
 </div>
 {{end}}
 {{end}}
@@ -15,9 +15,9 @@
 {{define "content"}}
 <div class="error-page">
   <div class="error-card">
-    <p class="error-card__code">{{.StatusCode}}</p>
-    <h1 class="error-card__title">{{.Title}}</h1>
-    <p class="error-card__message">{{.Message}}</p>
+    <p class="error-card__code">{{.Data.StatusCode}}</p>
+    <h1 class="error-card__title">{{.Data.Title}}</h1>
+    <p class="error-card__message">{{.Data.Message}}</p>
     <a href="/" class="btn btn--primary">Go to msg.</a>
   </div>
 </div>

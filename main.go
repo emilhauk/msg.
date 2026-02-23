@@ -62,6 +62,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("parse templates: %v", err)
 	}
+	renderer.BuildVersion = buildVersion
 
 	// Handlers.
 	authHandler := &auth.Handler{
@@ -90,8 +91,13 @@ func main() {
 		_, _ = w.Write([]byte(chromaCSS))
 	})
 
-	// Static assets.
-	mux.Handle("GET /static/", http.FileServerFS(webSubFS))
+	// Static assets — served with a long-lived immutable cache header.
+	// The ?v=<buildVersion> query string in templates busts the cache on deploy.
+	staticHandler := http.FileServerFS(webSubFS)
+	mux.Handle("GET /static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		staticHandler.ServeHTTP(w, r)
+	}))
 
 	// Auth routes (no auth required).
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
