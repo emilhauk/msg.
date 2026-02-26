@@ -563,6 +563,14 @@ img { display: block; max-width: 100%; }
   opacity: 1;
 }
 
+/* Touch devices: always show edit/delete controls (no hover available) */
+@media (hover: none) {
+  .message__edit,
+  .message__delete {
+    opacity: 1;
+  }
+}
+
 .message__text {
   font-size: .9375rem;
   line-height: 1.55;
@@ -718,9 +726,15 @@ img { display: block; max-width: 100%; }
   opacity: 0;
   transition: opacity .12s, border-color .12s, color .12s;
 }
+.message:hover .reaction-add,
 .reactions:hover .reaction-add,
 .reaction-add:focus-visible { opacity: 1; }
 .reaction-add:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+/* Touch devices: always show the add-reaction button (no hover available) */
+@media (hover: none) {
+  .reaction-add { opacity: 1; }
+}
 
 .reaction-preset-popover {
   position: absolute;
