@@ -550,6 +550,19 @@ img { display: block; max-width: 100%; }
   opacity: 1;
 }
 
+/* Keyboard-navigation: active message highlighted by arrow keys */
+.message--active {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Keep action buttons visible on the active message */
+.message--active .message__edit,
+.message--active .message__delete {
+  opacity: 1;
+}
+
 .message__text {
   font-size: .9375rem;
   line-height: 1.55;

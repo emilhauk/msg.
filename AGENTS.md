@@ -49,6 +49,7 @@ A simple public chat-room web app built with Go and HTMX. Real-time via Server-S
 - Auto-reload on deploy (SSE `version` event; respects focus state)
 - Light/dark/auto theme toggle (persisted in localStorage)
 - Cache-busted static assets (`?v=<gitSHA>`)
+- Keyboard-centric navigation: textarea auto-focus on load; `ArrowUp` on empty textarea enters message navigation mode (`message--active` CSS outline); `ArrowDown` exits nav at the last message; `Escape` cancels open edit or clears nav and returns to textarea; `e` opens edit on the active message (owner only); `d` deletes with `window.confirm()` (owner only)
 
 ---
 
