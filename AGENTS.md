@@ -1,6 +1,18 @@
 # Chat — Project Guide
 
-A simple public chat-room web application built with Go and HTMX. Real-time updates are delivered via Server-Sent Events (SSE). Redis is the sole data store. Currently a single room ("Project BEMRØ") is active; the data model is designed for multiple rooms from day one.
+## Working Convention
+
+AGENTS.md is the agent's persistent memory. Update it proactively whenever:
+- A technical decision is made or changed
+- A non-obvious pattern or constraint is discovered
+- A feature is added, changed, or removed
+- Anything would otherwise need re-discovery next session
+
+No permission needed — treat it as a working document, not documentation.
+
+---
+
+A simple public chat-room web app built with Go and HTMX. Real-time via Server-Sent Events. Redis is the sole data store. One active room ("Project BEMRØ", id `bemro`); the data model supports multiple rooms from day one.
 
 ---
 
@@ -9,121 +21,199 @@ A simple public chat-room web application built with Go and HTMX. Real-time upda
 | Layer | Choice | Notes |
 |---|---|---|
 | Language | Go (latest stable) | Standard library preferred; add dependencies deliberately |
-| Frontend | HTMX | No JS framework; sprinkle vanilla JS only where HTMX cannot reach |
-| Styling | Plain CSS | No Tailwind or CSS frameworks unless explicitly decided |
-| Real-time | Server-Sent Events | One `/events` SSE endpoint per room; HTMX `hx-ext="sse"` on the client |
-| Storage | Redis | All state lives here; no SQL database |
-| Auth | OAuth 2.0 | Providers: GitHub, Google, Discord |
-| Sessions | Signed cookies | Store session token in a cookie; resolve user from Redis |
-| Emoji picker | emoji-picker-element | Via jsDelivr CDN (`<script type="module">`); `emoji-click` appends unicode to textarea |
-| Link previews | Microlink API | Async, server-side; result cached in Redis; included in history if cached |
+| Frontend | HTMX | No JS framework; vanilla JS only where HTMX cannot reach |
+| Styling | Plain CSS | No Tailwind or CSS frameworks |
+| Real-time | Server-Sent Events | One `/events` SSE endpoint per room |
+| Storage | Redis | All state lives here; no SQL |
+| Auth | OAuth 2.0 | **GitHub only** (Google/Discord not implemented yet) |
+| Sessions | Signed cookies | HMAC-SHA256 token; 90-day TTL refreshed on each request |
+| Emoji picker | emoji-picker-element | jsDelivr CDN; cached in IndexedDB |
+| Link previews | Microlink API | Async, server-side; Redis-cached |
+| Media uploads | S3-compatible (MinIO) | Presigned PUT; optional (disabled when `S3_ENDPOINT` unset) |
+| Syntax highlighting | Chroma | Server-side; CSS generated at startup, served at `/static/chroma.css` |
 
 ---
 
-## Architecture Overview
+## Implemented Features (as of latest commit)
 
-```
-Browser
-  └─ HTMX (SSE extension for live updates, hx-post/hx-get for actions)
-       │
-       ▼
-Go HTTP Server
-  ├─ OAuth handlers      /auth/{provider}, /auth/{provider}/callback
-  ├─ Session middleware  validates cookie → resolves user
-  ├─ Room handler        GET / → redirect to /rooms/bemro
-  │                      GET /rooms/{id}
-  ├─ Message handlers    POST /rooms/{id}/messages
-  │                      GET  /rooms/{id}/messages?before=<timestamp-ms>&limit=50
-  ├─ Upload handler      GET /rooms/{id}/upload-url (presigned PUT URL; only when S3_ENDPOINT is set)
-  └─ SSE endpoint        GET /rooms/{id}/events
-       │
-       ▼
-Redis
-  ├─ sessions:{token}          Hash    – user info, expiry
-  ├─ users:{id}                Hash    – id, name, avatar_url, provider
-  ├─ rooms                     ZSet    – room IDs sorted by creation time
-  ├─ rooms:{id}                Hash    – id, name
-  ├─ rooms:{id}:messages       ZSet    – message IDs scored by Unix timestamp (ms)
-  ├─ messages:{msg-id}         Hash    – id, room_id, user_id, text, attachments (JSON), created_at; TTL 30 days
-  ├─ rooms:{id}:events         Pub/Sub – new message / unfurl notifications
-  └─ unfurls:{url-sha256}      String  – Microlink JSON result; TTL 24h (success), 15 min (failure)
-```
+- GitHub OAuth login with allow-list or open registration
+- Single chat room with real-time SSE messaging
+- Message delete (author only; SSE-broadcast to all clients)
+- Emoji reactions (toggle; preset popover + full picker; SSE-broadcast)
+- Emoji shortcode autocomplete (`:thumbs` → dropdown in textarea)
+- Link preview unfurls via Microlink (async; Redis-cached)
+- Media attachments: paste, drag-drop, file picker → presigned S3 PUT
+- Fenced code blocks with syntax highlighting and copy button
+- Infinite scroll (sentinel div, `hx-trigger="revealed"`)
+- Auto-scroll to bottom; pauses when user has scrolled up
+- Auto-reload on deploy (SSE `version` event; respects focus state)
+- Light/dark/auto theme toggle (persisted in localStorage)
+- Cache-busted static assets (`?v=<gitSHA>`)
 
 ---
 
 ## Project Layout
 
 ```
-.
-├── AGENTS.md
-├── go.mod
-├── go.sum
-├── main.go                  # Entry point: wire up routes, start server, seed rooms
-├── internal/
-│   ├── auth/
-│   │   ├── oauth.go         # OAuth flow, provider config
-│   │   └── session.go       # Cookie signing, session read/write
-│   ├── handler/
-│   │   ├── rooms.go         # GET / → redirect to /rooms/bemro; GET /rooms/{id}
-│   │   ├── messages.go      # POST /rooms/{id}/messages; GET /rooms/{id}/messages (paginated history)
-│   │   ├── upload.go        # GET /rooms/{id}/upload-url — presigned S3 PUT URL
-│   │   └── sse.go           # SSE endpoint, fan-out via Redis Pub/Sub
-│   ├── middleware/
-│   │   └── auth.go          # Session validation middleware
-│   ├── model/
-│   │   └── types.go         # User, Room, Message structs
-│   ├── redis/
-│   │   └── client.go        # Redis connection and typed helpers
-│   ├── storage/
-│   │   └── s3.go            # S3-compatible media storage (presign, public URL)
-│   └── tmpl/
-│       └── render.go        # Template rendering helpers
-└── web/
-    ├── templates/
-    │   ├── base.html        # Base layout with HTMX + SSE extension scripts
-    │   ├── room.html        # Single room view (message list + sentinel div + input)
-    │   ├── message.html     # Partial: one message row (returned by POST and SSE push)
-    │   ├── unfurl.html      # Partial: link preview card (title, description, image)
-    │   └── login.html       # Login / OAuth entry page
-    └── static/
-        └── style.css
+main.go                        # Entry point: wire routes, seed room, serve
+internal/
+  auth/
+    oauth.go                   # OAuth flow; GitHub only; HandleLogin, HandleCallback, HandleLogout
+    session.go                 # HMAC cookie sign/verify; SignToken, VerifyToken, SetCookie, ClearCookie
+  handler/
+    rooms.go                   # GET / → redirect /rooms/bemro; GET /rooms/{id}
+    messages.go                # POST /rooms/{id}/messages (204); GET /rooms/{id}/messages (history)
+                               #   DELETE /rooms/{id}/messages/{msgID} (author-only)
+                               #   hydrateMessages() — user+unfurl+reactions per message
+    reactions.go               # POST /rooms/{id}/messages/{msgID}/reactions — toggle, SSE broadcast
+    upload.go                  # GET /rooms/{id}/upload-url — presigned S3 PUT (optional)
+    sse.go                     # GET /rooms/{id}/events — Redis Pub/Sub → SSE fan-out
+    unfurl.go                  # fetchMicrolink(); isValidHTTPURL()
+  middleware/
+    auth.go                    # RequireAuth middleware; UserFromContext()
+  model/
+    types.go                   # User, Room, Message, Attachment, Reaction, Unfurl, MessageView
+  redis/
+    client.go                  # All Redis operations (typed helpers only — no raw commands in handlers)
+  storage/
+    s3.go                      # S3Client: PresignPut, PublicURL, KeyFromURL, DeleteObjects, MediaKey
+  tmpl/
+    render.go                  # Renderer; funcMap (renderText, linkify, reactionData, …); ChromaCSS
+web/
+  templates/
+    base.html                  # Layout: HTMX, SSE ext, emoji-picker-element; theme/emoji/copy JS
+    room.html                  # Room page; SSE wiring; all vanilla JS (scroll, upload, reactions, autocomplete)
+    message.html               # Message partial (used for SSE push and initial render)
+    reactions.html             # Reactions bar partial (used standalone for SSE reaction events)
+    history.html               # Infinite-scroll history partial (sentinel + messages)
+    unfurl.html                # Link preview card partial
+    login.html                 # Login page (GitHub button)
+    error.html                 # Error page
+  static/
+    style.css                  # All styles
+    favicon.svg
+    logo_square_256.png
+compose.yml                    # Docker Compose: app + Redis + RedisInsight + MinIO
+Dockerfile / Dockerfile.prod   # Dev and production builds
+.air.toml                      # Air live-reload config (dev)
 ```
+
+---
+
+## Routes
+
+```
+GET  /login                                — login page
+GET  /auth/{provider}                      — start OAuth (GitHub only)
+GET  /auth/{provider}/callback             — OAuth callback
+POST /auth/logout                          — clear session
+
+GET  /                                     — redirect → /rooms/bemro
+GET  /rooms/{id}                           — room page (last 50 msgs)
+GET  /rooms/{id}/events                    — SSE stream (Redis Pub/Sub)
+POST /rooms/{id}/messages                  — post message → 204 (SSE delivers to all)
+GET  /rooms/{id}/messages?before=<ms>&limit=50  — paginated history partial
+DELETE /rooms/{id}/messages/{msgID}        — delete own message → 204 + SSE delete event
+POST /rooms/{id}/messages/{msgID}/reactions — toggle emoji reaction → 204 + SSE reaction event
+GET  /rooms/{id}/upload-url?hash=&content_type=&content_length=  — presign S3 PUT (optional)
+
+GET  /static/*                             — embedded static files (immutable cache)
+GET  /static/chroma.css                    — generated syntax-highlight CSS
+```
+
+---
+
+## Redis Key Schema
+
+```
+sessions:{token}              Hash    id, name, avatar_url, provider; TTL 90 days
+oauth:state:{state}           String  CSRF state; TTL 10 min (consumed on use)
+users:{id}                    Hash    id, name, avatar_url, provider (no TTL)
+rooms                         ZSet    room IDs scored by creation time (unix seconds)
+rooms:{id}                    Hash    id, name
+rooms:{id}:messages           ZSet    message IDs scored by created_at (unix ms); cleaned on write
+rooms:{id}:events             Pub/Sub SSE fan-out channel
+messages:{msg-id}             Hash    id, room_id, user_id, text, attachments (JSON), created_at (ms); TTL 30 days
+reactions:{msg-id}            Hash    emoji → count; TTL 30 days
+reactions:{msg-id}:users      Hash    "{emoji}\x00{userID}" → "1"; TTL 30 days
+unfurls:{sha256-of-url}       String  JSON Unfurl or "null"; TTL 24h (success) / 15 min (failure)
+```
+
+---
+
+## SSE Payload Protocol
+
+All payloads published to `rooms:{id}:events` use a prefix to identify type:
+
+```
+"msg:<html>"             → event: message   (HTMX sse-swap into #sse-message-target)
+"unfurl:<msgId>:<html>"  → event: unfurl    (JS: innerHTML on #preview-<msgId>)
+"reaction:<json>"        → event: reaction  (JS: JSON { msgId, reactorId, reactedEmojis, html })
+"delete:<msgId>"         → event: delete    (JS: remove #msg-<msgId>)
+```
+
+On connect the server also sends:
+```
+event: version\ndata: <buildSHA>
+```
+Used by the client to detect deploys and trigger a reload.
+
+---
+
+## Two SSE Connections Per Client
+
+The room page opens **two** `EventSource` connections to the same `/rooms/{id}/events` endpoint:
+
+1. **HTMX-managed** (`sse-connect` on `<section>`): handles `event: message` only via `sse-swap`.
+2. **Vanilla JS-managed** (in `room.html` `<script>`): handles `unfurl`, `reaction`, `delete`, and `version`.
+
+Rationale: HTMX's SSE extension silently drops event types it is not `sse-swap`-ing. A dedicated native `EventSource` handles all non-message events cleanly.
+
+---
+
+## Message ID Format
+
+```
+{unixMillis}-{userID}
+```
+e.g. `1712345678901-github:12345678`. Both uniquely identifies the message and encodes the creation timestamp.
+
+---
+
+## Media Upload Flow
+
+1. Client generates a 12-char random hex hash.
+2. `GET /rooms/{id}/upload-url?hash=<hash>&content_type=<type>&content_length=<bytes>` → `{ upload_url, public_url, key }`.
+3. Client PUTs directly to S3 using `upload_url`.
+4. Client includes `{ url: public_url, content_type, filename: hash }` as JSON in the `attachments` form field on message POST.
+5. Server validates content type and URL on POST; deletes S3 objects when message is deleted.
+
+Allowed content types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `video/mp4`, `video/webm`. Max size: **50 MiB**.
+
+S3 key format: `rooms/{roomID}/{unixMs}-{userID}/{hash}.{ext}`
+
+---
+
+## Reaction Broadcast Strategy
+
+Reactions are broadcast as **neutral HTML** (no `ReactedByMe` baked in for any user) plus the reacting user's emoji list. Each client applies its own active state from a local `__myReactions` map in JS, then calls `htmx.process()` on the swapped element so HTMX re-processes new `hx-post` attributes.
 
 ---
 
 ## Key Conventions
 
 ### Go
-- Keep handlers thin; business logic in `internal/` packages.
-- `POST /rooms/{id}/messages` returns `204 No Content`; do **not** return a rendered partial. The message is delivered to all clients (including the sender) exclusively via SSE. This prevents the sender seeing duplicates.
-- Use `context.Context` for cancellation (especially in the SSE handler).
-- Wrap all Redis calls in typed helpers (`internal/redis`); never use raw string commands scattered through handlers.
-- Errors bubble up to a central handler that renders a minimal error partial.
-- Configuration via environment variables only (no config files). Required vars:
-
-  ```
-  REDIS_URL              e.g. redis://localhost:6379
-  SESSION_SECRET         random 32-byte hex string
-  BASE_URL               public-facing URL e.g. http://localhost:8080
-  GITHUB_CLIENT_ID
-  GITHUB_CLIENT_SECRET
-  GOOGLE_CLIENT_ID
-  GOOGLE_CLIENT_SECRET
-  DISCORD_CLIENT_ID
-  DISCORD_CLIENT_SECRET
-  MICROLINK_API_KEY      optional; only required if exceeding the free tier
-  S3_ENDPOINT            S3-compatible endpoint e.g. https://s3.example.com; omit to disable media uploads
-  S3_BUCKET              bucket name for uploaded media
-  S3_REGION              region string (MinIO accepts any value e.g. us-east-1)
-  S3_ACCESS_KEY_ID       S3 access key ID
-  S3_SECRET_ACCESS_KEY   S3 secret access key
-  PORT                   default 8080
-  OPEN_REGISTRATION      "true" = anyone may log in; "false" (default) = only emails in ALLOW_LIST are permitted
-  ALLOW_LIST             comma-separated list of email addresses allowed to log in, e.g. alice@example.com,bob@example.com
-  ```
+- Handlers are thin; business logic lives in `internal/` packages.
+- `POST /rooms/{id}/messages` always returns `204 No Content`. Never return rendered HTML from POST — the message is delivered exclusively via SSE to avoid duplicates.
+- All Redis operations go through typed helpers in `internal/redis/client.go`. Never scatter raw Redis commands in handlers.
+- `context.Context` is threaded through all Redis and HTTP calls for proper cancellation.
+- `middleware.UserFromContext(ctx)` retrieves the authenticated user; always available in protected routes.
+- `model.MessageView` wraps `*model.Message` + `CurrentUserID` for templates that conditionally render owner-only controls.
+- The `Renderer.RenderString()` method renders partials (SSE fragments) without the base layout and without wrapping in `pageData`.
+- `Renderer.Render()` wraps data in `pageData{BuildVersion, Data}` — templates access `.Data.*` and `.BuildVersion`.
 
 ### CDN Policy
-jsDelivr (`https://cdn.jsdelivr.net/`) is the preferred CDN for all external assets. No other CDN should be introduced without a deliberate decision. Assets loaded from jsDelivr:
+jsDelivr only. No other CDN without deliberate decision.
 
 ```
 https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js
@@ -131,115 +221,86 @@ https://cdn.jsdelivr.net/npm/htmx-ext-sse@2/sse.js
 https://cdn.jsdelivr.net/npm/emoji-picker-element/+esm
 ```
 
-### HTMX
-- Room page receives new messages via SSE (`hx-ext="sse"`, `sse-connect`, `sse-swap`).
-- Message form uses `hx-post` with `hx-swap="none"`; the server returns `204 No Content`. All clients (including the sender) receive the message exclusively via SSE, avoiding duplicates.
-- Do not use `hx-push-url` on SSE-only updates.
+### No build step
+No webpack, vite, or any frontend bundler. No TypeScript compilation. No Tailwind. Static files are embedded via `//go:embed web`.
 
-#### SSE — two connections per client
-The room page opens **two** `EventSource` connections to `/rooms/{id}/events`:
+---
 
-1. **HTMX-managed** (`sse-connect` on the `<section>`): listens for `event: message`, swaps rendered message HTML into the message list via `sse-swap`.
-2. **Vanilla JS-managed** (opened in a `<script>` block in `room.html`): listens exclusively for `event: unfurl`. When received, parses the data as `<msgId>:<html>` and sets `innerHTML` on `#preview-<msgId>`.
-
-Rationale: HTMX's SSE extension only dispatches `htmx:sseMessage` for events it is actively handling via `sse-swap`. Custom event types (like per-message unfurl notifications) are silently dropped by HTMX. A dedicated native `EventSource` avoids any reliance on HTMX internals and keeps the two concerns cleanly separated.
-
-#### Emoji Picker
-- `<emoji-picker>` is placed in `base.html` **outside** any HTMX-swappable region so it survives DOM swaps.
-- A button next to the message input toggles its visibility via a small vanilla JS snippet.
-- A single `emoji-click` event listener appends `event.detail.unicode` to the message `<textarea>`.
-- Emoji data is fetched from jsDelivr on first load and cached in IndexedDB; subsequent loads have zero network cost for emoji data.
-
-#### Infinite Scroll (message history)
-- On room visit, the server renders the last 50 messages (oldest-first).
-- A sentinel `<div>` is prepended above the oldest message with:
-  ```html
-  <div hx-get="/rooms/{id}/messages?before=<oldest-timestamp-ms>&limit=50"
-       hx-trigger="revealed"
-       hx-swap="beforebegin">
-  </div>
-  ```
-- When the sentinel scrolls into view, HTMX fetches the next 50 older messages and prepends them, replacing the sentinel with a new one (or removing it if no more messages exist). No JavaScript required.
-
-### Redis Data Patterns
-
-#### Message Storage
-- On `POST /rooms/{id}/messages`:
-  - Generate a message ID (e.g. UUIDv4 or timestamp-based).
-  - `HSET messages:{msg-id} id ... room_id ... user_id ... text ... created_at ...`
-  - `EXPIRE messages:{msg-id} 2592000` (30 days).
-  - `ZADD rooms:{id}:messages <timestamp-ms> <msg-id>` to add to the room's index.
-  - `ZREMRANGEBYSCORE rooms:{id}:messages 0 <timestamp-ms-30-days-ago>` to evict expired entries from the index.
-  - `PUBLISH rooms:{id}:events <rendered-message-html>` for SSE fan-out.
-
-#### Message Loading & Pagination
-- Initial load: `ZREVRANGE rooms:{id}:messages 0 49` → fetch each message Hash → render oldest-first.
-- Paginated history (`GET /rooms/{id}/messages?before=<timestamp-ms>&limit=50`): `ZREVRANGEBYSCORE rooms:{id}:messages (<timestamp-ms> -inf LIMIT 0 50` → fetch Hashes → return rendered HTML partial.
-- For each message, check `unfurls:{sha256}` in Redis — include the preview card if cached, silently omit if not.
-
-#### Link Previews
-- On `POST /rooms/{id}/messages`, extract the first URL from the message text.
-- Store and broadcast the message immediately (non-blocking).
-- A goroutine then:
-  1. Checks `unfurls:{sha256-of-normalised-url}` — if cached, publish the preview SSE event and return.
-  2. Otherwise, calls the Microlink API (`https://api.microlink.io/?url=<url>`).
-  3. Caches the result: `SET unfurls:{sha256} <json> EX 86400` (success) or `EX 900` (failure/no-data).
-  4. Publishes a second SSE event (`event: unfurl`) with `data: <msg-id>:<rendered-unfurl-html>`. The vanilla JS `EventSource` listener on the client splits on the first `:` to extract the message ID and sets `innerHTML` on `#preview-<msg-id>`.
-- On history load: Redis `GET unfurls:{sha256}` per message — preview included if cached, omitted if not. No fresh Microlink calls for history.
-- DIY fallback path: if Microlink is dropped, replace the API call with `otiai10/opengraph v2` using an SSRF-hardened `*http.Client` (custom `DialContext` blocking RFC1918, loopback, link-local ranges; redirect re-validation; 1 MB response size limit; 5s timeout).
-
-#### Sessions
-- Sessions expire via Redis TTL (7 days, refreshed on each request).
-
-### Authentication Flow
-1. User clicks "Login with X" → `GET /auth/{provider}` → redirect to provider.
-2. Provider redirects to `GET /auth/{provider}/callback`.
-3. Exchange code for token, fetch user profile, upsert `users:{id}` in Redis.
-4. Create session, set signed cookie, redirect to `/rooms/bemro`.
-5. Logout: `POST /auth/logout` → delete session key, clear cookie.
-
-### Startup — Room Seeding
-On server start, seed the default room if it does not already exist:
+## Environment Variables
 
 ```
-ZADD NX rooms <unix-timestamp-seconds> "bemro"
-HSET rooms:bemro id bemro name "Project BEMRØ"
+REDIS_URL              redis://localhost:6379
+SESSION_SECRET         64-char hex string (32 bytes)
+BASE_URL               public-facing URL, e.g. http://localhost:8080
+PORT                   default 8080
+OPEN_REGISTRATION      "true" = anyone may log in; "false" (default) = ALLOW_LIST only
+ALLOW_LIST             comma-separated emails permitted to log in
+
+GITHUB_CLIENT_ID
+GITHUB_CLIENT_SECRET
+
+# Google and Discord OAuth vars are documented but NOT yet implemented.
+
+MICROLINK_API_KEY      optional; only needed above Microlink free-tier limits
+
+S3_ENDPOINT            omit to disable media uploads (e.g. https://s3.example.com)
+S3_BUCKET
+S3_REGION              MinIO accepts any string (e.g. us-east-1)
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
 ```
 
-The multi-room data model is fully operational from day one. Adding rooms in future requires only additional seeds or an admin command — no schema changes.
+---
+
+## Decisions & Constraints
+
+- **GitHub OAuth only.** `GOOGLE_CLIENT_ID` / `DISCORD_CLIENT_ID` are documented in the original spec but the handler rejects non-GitHub providers. Don't add them without a deliberate decision.
+- **No room-creation UI.** Rooms are seeded at startup only (`SeedRoom` in `main.go`). The `bemro` room is the only active room.
+- **No ORM.** Redis commands only, through `internal/redis/client.go`.
+- **No SQL.** Redis is the only data store.
+- **No client-side routing.** Every navigation is a full or partial (HTMX) page load.
+- **Sessions TTL: 90 days** (cookie + Redis TTL are kept in sync; refreshed on every authenticated request).
+- **Message TTL: 30 days.** Both the Hash and the sorted-set entry are cleaned up.
+- **Syntax highlighting** uses Chroma (server-side). CSS is generated at startup for `github` (light) and `github-dark` (dark) themes and served dynamically from `/static/chroma.css`. The CSS integrates with the `[data-theme]` attribute system.
+- **Emoji shortcode autocomplete** uses `emoji-picker-element`'s `Database` class exposed as `window.__EmojiDatabase` from the module script in `base.html`. The room page polls for it with `setInterval`.
 
 ---
 
 ## What to Avoid
-- No ORM. Use Redis commands directly through typed helpers.
-- No client-side routing. Every navigation is a full or partial page load via HTMX.
-- No global mutable state in Go beyond the Redis client and the HTTP server itself.
-- Do not add a SQL database unless explicitly decided by the team.
-- Do not add a frontend build step (no webpack, vite, etc.).
-- No room-creation UI. Rooms are seeded at server startup only, until explicitly decided otherwise.
-- Do not load CDN assets from providers other than jsDelivr without a deliberate decision.
+
+- Do not return HTML from `POST /rooms/{id}/messages`. SSE delivers to everyone.
+- Do not add raw Redis commands outside `internal/redis/client.go`.
+- Do not add a SQL database or ORM.
+- Do not add a frontend build step.
+- Do not load assets from CDNs other than jsDelivr.
+- Do not add room-creation UI or a multi-room sidebar (sidebar code is commented out in `room.html`).
+- Do not add Google or Discord OAuth without a deliberate decision.
 
 ---
 
 ## Running Locally
 
 ```sh
-# Start Redis
-docker run -d -p 6379:6379 redis:alpine
+# All services (app + Redis + RedisInsight + MinIO)
+docker compose up
 
-# Set environment variables (copy and fill in .env, then):
-export $(cat .env | xargs)
+# Or just Redis, then run Go directly with air (live reload):
+docker compose up redis
+air
+```
 
-# Run
-go run ./...
+Build version is injected at build time:
+```sh
+go build -ldflags "-X main.buildVersion=$(git rev-parse --short HEAD)" .
 ```
 
 ---
 
 ## Definition of Done (per feature)
 
-- Renders correctly with HTMX (no full-page reloads where a partial is expected).
-- Works without JavaScript disabled for static content (progressive enhancement where practical).
+- Renders correctly with HTMX; no full-page reloads where a partial is expected.
+- `POST` actions return `204`; all state changes delivered via SSE.
 - No secrets committed; all config via env vars.
-- Redis keys follow the naming scheme above.
-- New env vars are documented in this file.
+- Redis keys follow the schema above.
+- New env vars documented in this file.
+- New templates registered in `tmpl.New()` in `internal/tmpl/render.go`.
