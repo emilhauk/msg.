@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	"github.com/emilhauk/chat/internal/middleware"
 	"github.com/emilhauk/chat/internal/model"
 	redisclient "github.com/emilhauk/chat/internal/redis"
+	"github.com/emilhauk/chat/internal/storage"
 	"github.com/emilhauk/chat/internal/tmpl"
 )
 
@@ -23,6 +25,9 @@ var urlRe = regexp.MustCompile(`https?://[^\s]+`)
 type MessagesHandler struct {
 	Redis    *redisclient.Client
 	Renderer *tmpl.Renderer
+	// S3 is optional. When set, attached media files are deleted from the bucket
+	// alongside the message record on deletion.
+	S3 *storage.S3Client
 }
 
 // HandlePost handles POST /rooms/{id}/messages.
@@ -85,7 +90,9 @@ func (h *MessagesHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Render and publish via SSE.
-	html, err := h.Renderer.RenderString("message.html", msg)
+	// All clients receive the message via SSE; the CurrentUserID is embedded so
+	// only the author sees the delete button in their own browser.
+	html, err := h.Renderer.RenderString("message.html", model.MessageView{Message: &msg, CurrentUserID: user.ID})
 	if err == nil {
 		_ = h.Redis.Publish(r.Context(), roomID, "msg:"+html)
 	}
@@ -132,18 +139,72 @@ func (h *MessagesHandler) HandleHistory(w http.ResponseWriter, r *http.Request) 
 		oldestMS = msgs[0].CreatedAtMS
 	}
 
+	views := make([]*model.MessageView, len(msgs))
+	for i, m := range msgs {
+		views[i] = &model.MessageView{Message: m, CurrentUserID: user.ID}
+	}
+
 	type historyData struct {
-		Messages []*model.Message
-		RoomID   string
-		OldestMS string
-		HasMore  bool
+		Messages      []*model.MessageView
+		RoomID        string
+		OldestMS      string
+		HasMore       bool
+		CurrentUserID string
 	}
 	h.Renderer.Render(w, http.StatusOK, "history.html", historyData{
-		Messages: msgs,
-		RoomID:   roomID,
-		OldestMS: oldestMS,
-		HasMore:  len(msgs) == limit,
+		Messages:      views,
+		RoomID:        roomID,
+		OldestMS:      oldestMS,
+		HasMore:       len(msgs) == limit,
+		CurrentUserID: user.ID,
 	})
+}
+
+// HandleDelete handles DELETE /rooms/{id}/messages/{msgID}.
+// Only the message author may delete their own message. On success the message
+// is removed from Redis and a "delete" SSE event is published to all clients.
+func (h *MessagesHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	msgID := r.PathValue("msgID")
+	user := middleware.UserFromContext(r.Context())
+
+	msg, err := h.Redis.GetMessage(r.Context(), msgID)
+	if err != nil || msg == nil {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+
+	if msg.UserID != user.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Delete attached media from S3 before removing the message record so we
+	// never leave orphaned objects if the Redis delete fails.
+	if h.S3 != nil && len(msg.Attachments) > 0 {
+		keys := make([]string, 0, len(msg.Attachments))
+		for _, a := range msg.Attachments {
+			if key, ok := h.S3.KeyFromURL(a.URL); ok {
+				keys = append(keys, key)
+			} else {
+				log.Printf("delete message %s: attachment URL %q does not match S3 endpoint, skipping", msgID, a.URL)
+			}
+		}
+		if err := h.S3.DeleteObjects(r.Context(), keys); err != nil {
+			log.Printf("delete message %s: remove S3 objects: %v", msgID, err)
+			// Non-fatal: proceed to delete the message record so the user is
+			// not left unable to delete. The orphaned objects are small.
+		}
+	}
+
+	if err := h.Redis.DeleteMessage(r.Context(), roomID, msgID); err != nil {
+		http.Error(w, "failed to delete message", http.StatusInternalServerError)
+		return
+	}
+
+	_ = h.Redis.Publish(r.Context(), roomID, "delete:"+msgID)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // hydrateMessages fetches user, unfurl, and reaction data for a slice of

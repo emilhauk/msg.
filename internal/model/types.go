@@ -58,3 +58,10 @@ type Unfurl struct {
 	Image       string `json:"image"`
 	URL         string `json:"url"`
 }
+
+// MessageView wraps a Message with the ID of the currently authenticated user
+// so that templates can conditionally render owner-only controls (e.g. delete).
+type MessageView struct {
+	*Message
+	CurrentUserID string
+}

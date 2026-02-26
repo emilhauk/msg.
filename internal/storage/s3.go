@@ -10,12 +10,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 const presignTTL = 5 * time.Minute
 
 // S3Client wraps the AWS S3 presign client for media uploads.
 type S3Client struct {
+	client   *s3.Client
 	presign  *s3.PresignClient
 	bucket   string
 	endpoint string // public-facing base URL, e.g. "https://s3.example.com"
@@ -57,6 +59,7 @@ func NewS3Client(cfg Config) (*S3Client, error) {
 	})
 
 	return &S3Client{
+		client:   client,
 		presign:  s3.NewPresignClient(client),
 		bucket:   cfg.Bucket,
 		endpoint: strings.TrimRight(cfg.Endpoint, "/"),
@@ -81,6 +84,57 @@ func (c *S3Client) PresignPut(ctx context.Context, key, contentType string, cont
 // PublicURL returns the public URL for a stored object.
 func (c *S3Client) PublicURL(key string) string {
 	return c.endpoint + "/" + c.bucket + "/" + key
+}
+
+// KeyFromURL extracts the object key from a public URL produced by PublicURL.
+// Returns the key and true on success, or empty string and false if the URL
+// does not belong to this client's bucket.
+func (c *S3Client) KeyFromURL(publicURL string) (string, bool) {
+	prefix := c.endpoint + "/" + c.bucket + "/"
+	if !strings.HasPrefix(publicURL, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(publicURL, prefix), true
+}
+
+// DeleteObjects removes one or more objects from the bucket.
+// Keys that do not exist are silently ignored (S3 delete is idempotent).
+// If keys is empty the call is a no-op.
+// Per-object failures (returned in the response body even on HTTP 200) are
+// collected and returned as a combined error.
+func (c *S3Client) DeleteObjects(ctx context.Context, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	objects := make([]s3types.ObjectIdentifier, len(keys))
+	for i, k := range keys {
+		objects[i] = s3types.ObjectIdentifier{Key: aws.String(k)}
+	}
+	out, err := c.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		Bucket: aws.String(c.bucket),
+		Delete: &s3types.Delete{
+			Objects: objects,
+			// Quiet=false so that per-object errors are included in the response.
+			// (With Quiet=true, failed objects are still reported but successes
+			// are suppressed — we use false here to be explicit and future-proof.)
+			Quiet: aws.Bool(false),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("storage: delete objects: %w", err)
+	}
+	// S3 returns HTTP 200 even when individual objects fail; errors are only
+	// visible in the response body.
+	if out != nil && len(out.Errors) > 0 {
+		msgs := make([]string, len(out.Errors))
+		for i, e := range out.Errors {
+			msgs[i] = fmt.Sprintf("key=%q code=%s message=%s",
+				aws.ToString(e.Key), aws.ToString(e.Code), aws.ToString(e.Message))
+		}
+		return fmt.Errorf("storage: delete objects: %d object(s) failed: %s",
+			len(out.Errors), strings.Join(msgs, "; "))
+	}
+	return nil
 }
 
 // ExtForContentType returns the canonical file extension (without leading dot)

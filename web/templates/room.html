@@ -657,6 +657,11 @@
     }
     // -- End auto-reload ----------------------------------------------------
 
+    es.addEventListener('delete', function (e) {
+      const el = document.getElementById('msg-' + e.data.trim());
+      if (el) el.remove();
+    });
+
     es.addEventListener('unfurl', function (e) {
       // data format: "<msgId>:<html>"
       const colon = e.data.indexOf(':');
@@ -699,6 +704,45 @@
 
     // Clean up when the page unloads.
     window.addEventListener('pagehide', function () { es.close(); });
+  }());
+
+  // ---- Optimistic delete UX ----
+  // On delete request: dim the message and replace the trash icon with a
+  // spinner so the user has clear feedback and can't double-submit.
+  // On failure: restore everything so the user can retry.
+  (function () {
+    var SPINNER_HTML = '<span class="attachment-chip__spinner" aria-hidden="true"></span>';
+
+    // Saved button contents keyed by the button element itself (WeakMap so
+    // there's no need to manually clean up after the element is removed).
+    var savedHTML = new WeakMap();
+
+    function onBefore(e) {
+      var btn = e.detail.elt;
+      if (!btn || !btn.classList.contains('message__delete')) return;
+      var article = btn.closest('article.message');
+      if (!article) return;
+
+      article.classList.add('message--deleting');
+      savedHTML.set(btn, btn.innerHTML);
+      btn.innerHTML = SPINNER_HTML;
+      btn.disabled = true;
+    }
+
+    function onError(e) {
+      var btn = e.detail.elt;
+      if (!btn || !btn.classList.contains('message__delete')) return;
+      var article = btn.closest('article.message');
+      if (article) article.classList.remove('message--deleting');
+
+      var html = savedHTML.get(btn);
+      if (html !== undefined) btn.innerHTML = html;
+      btn.disabled = false;
+    }
+
+    document.addEventListener('htmx:beforeRequest', onBefore);
+    document.addEventListener('htmx:responseError', onError);
+    document.addEventListener('htmx:sendError',     onError);
   }());
 
   // ---- Reaction preset popover ----

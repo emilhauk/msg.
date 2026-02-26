@@ -499,6 +499,34 @@ img { display: block; max-width: 100%; }
   color: var(--color-text-muted);
 }
 
+.message__delete {
+  margin-left: auto;
+  opacity: 0;
+  color: var(--color-text-muted);
+  transition: opacity .15s, color .15s;
+  /* Keep the button in flow so it doesn't shift other meta items */
+  align-self: center;
+}
+
+.message:hover .message__delete,
+.message__delete:focus-visible {
+  opacity: 1;
+}
+
+.message__delete:hover {
+  color: var(--color-danger);
+}
+
+.message--deleting {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity .15s;
+}
+
+.message--deleting .message__delete {
+  opacity: 1;
+}
+
 .message__text {
   font-size: .9375rem;
   line-height: 1.55;

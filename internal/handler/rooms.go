@@ -23,7 +23,7 @@ func (h *RoomsHandler) HandleRoot(w http.ResponseWriter, r *http.Request) {
 type roomPageData struct {
 	User     *model.User
 	Room     *model.Room
-	Messages []*model.Message
+	Messages []*model.MessageView
 	// OldestMS is the created_at ms timestamp of the oldest rendered message,
 	// used as the cursor for infinite scroll.
 	OldestMS string
@@ -61,10 +61,15 @@ func (h *RoomsHandler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 		oldestMS = msgs[0].CreatedAtMS
 	}
 
+	views := make([]*model.MessageView, len(msgs))
+	for i, m := range msgs {
+		views[i] = &model.MessageView{Message: m, CurrentUserID: user.ID}
+	}
+
 	h.Renderer.Render(w, http.StatusOK, "room.html", roomPageData{
 		User:     user,
 		Room:     room,
-		Messages: msgs,
+		Messages: views,
 		OldestMS: oldestMS,
 	})
 }

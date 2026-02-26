@@ -20,6 +20,7 @@ type SSEHandler struct {
 //	"msg:<html>"            → event: message
 //	"unfurl:<id>:<html>"    → event: unfurl,   data: <id>:<html>
 //	"reaction:<id>:<html>"  → event: reaction, data: <id>:<html>
+//	"delete:<id>"           → event: delete,   data: <id>
 func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
 
@@ -76,6 +77,10 @@ func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 				// Payload is a JSON object; forward it as a single data line.
 				jsonData := strings.TrimPrefix(payload, "reaction:")
 				fmt.Fprintf(w, "event: reaction\ndata: %s\n\n", jsonData)
+				flusher.Flush()
+			case strings.HasPrefix(payload, "delete:"):
+				msgID := strings.TrimPrefix(payload, "delete:")
+				fmt.Fprintf(w, "event: delete\ndata: %s\n\n", msgID)
 				flusher.Flush()
 			}
 		}

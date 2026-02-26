@@ -227,6 +227,17 @@ func (c *Client) fetchMessages(ctx context.Context, ids []string, reverseOrder b
 	return msgs, nil
 }
 
+// DeleteMessage removes a message hash, its sorted-set entry, and any reactions.
+func (c *Client) DeleteMessage(ctx context.Context, roomID, msgID string) error {
+	pipe := c.rdb.Pipeline()
+	pipe.Del(ctx, "messages:"+msgID)
+	pipe.ZRem(ctx, "rooms:"+roomID+":messages", msgID)
+	pipe.Del(ctx, "reactions:"+msgID)
+	pipe.Del(ctx, "reactions:"+msgID+":users")
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 // ---------------------------------------------------------------------------
 // Reactions
 // ---------------------------------------------------------------------------

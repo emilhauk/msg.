@@ -91,7 +91,7 @@ func main() {
 		GitHubClientSecret: envOrDefault("GITHUB_CLIENT_SECRET", ""),
 	}
 	roomsHandler := &handler.RoomsHandler{Redis: redis, Renderer: renderer}
-	messagesHandler := &handler.MessagesHandler{Redis: redis, Renderer: renderer}
+	messagesHandler := &handler.MessagesHandler{Redis: redis, Renderer: renderer, S3: s3Client}
 	reactionsHandler := &handler.ReactionsHandler{Redis: redis, Renderer: renderer}
 	sseHandler := &handler.SSEHandler{Redis: redis, Version: buildVersion}
 
@@ -133,6 +133,7 @@ func main() {
 	mux.Handle("POST /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandlePost)))
 	mux.Handle("GET /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandleHistory)))
 	mux.Handle("GET /rooms/{id}/events", authMW(http.HandlerFunc(sseHandler.HandleSSE)))
+	mux.Handle("DELETE /rooms/{id}/messages/{msgID}", authMW(http.HandlerFunc(messagesHandler.HandleDelete)))
 	mux.Handle("POST /rooms/{id}/messages/{msgID}/reactions", authMW(http.HandlerFunc(reactionsHandler.HandleToggle)))
 
 	// Media upload — only available when S3 is configured.
