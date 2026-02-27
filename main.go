@@ -18,6 +18,7 @@ import (
 	redisclient "github.com/emilhauk/chat/internal/redis"
 	"github.com/emilhauk/chat/internal/storage"
 	"github.com/emilhauk/chat/internal/tmpl"
+	"github.com/emilhauk/chat/internal/webpush"
 )
 
 // buildVersion is the short git SHA injected at build time via:
@@ -80,6 +81,20 @@ func main() {
 		}
 	}
 
+	// VAPID / Web Push (optional — disabled when VAPID_PUBLIC_KEY is unset).
+	vapidCfg := webpush.Config{
+		VAPIDPublicKey:  envOrDefault("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey: envOrDefault("VAPID_PRIVATE_KEY", ""),
+		VAPIDSubject:    envOrDefault("VAPID_SUBJECT", ""),
+	}
+	var pushSender *webpush.Sender
+	if vapidCfg.IsConfigured() {
+		pushSender = webpush.New(vapidCfg)
+		log.Println("web push: enabled")
+	} else {
+		log.Println("web push: disabled (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT not set)")
+	}
+
 	// Handlers.
 	authHandler := &auth.Handler{
 		Redis:              redis,
@@ -91,9 +106,20 @@ func main() {
 		GitHubClientSecret: envOrDefault("GITHUB_CLIENT_SECRET", ""),
 	}
 	roomsHandler := &handler.RoomsHandler{Redis: redis, Renderer: renderer}
-	messagesHandler := &handler.MessagesHandler{Redis: redis, Renderer: renderer, S3: s3Client}
+	messagesHandler := &handler.MessagesHandler{
+		Redis:    redis,
+		Renderer: renderer,
+		S3:       s3Client,
+		Push:     pushSender,
+		BaseURL:  baseURL,
+	}
 	reactionsHandler := &handler.ReactionsHandler{Redis: redis, Renderer: renderer}
 	sseHandler := &handler.SSEHandler{Redis: redis, Version: buildVersion}
+	notificationsHandler := &handler.NotificationsHandler{
+		Redis:          redis,
+		Push:           pushSender,
+		VAPIDPublicKey: vapidCfg.VAPIDPublicKey,
+	}
 
 	authMW := middleware.RequireAuth(redis, sessionSecret)
 
@@ -105,6 +131,20 @@ func main() {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = w.Write([]byte(chromaCSS))
+	})
+
+	// Service Worker — served at root scope with no-cache so the browser always
+	// checks for updates. Must NOT be under /static/ (scope would be too narrow).
+	swBytes, swErr := fs.ReadFile(webSubFS, "static/sw.js")
+	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
+		if swErr != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Service-Worker-Allowed", "/")
+		_, _ = w.Write(swBytes)
 	})
 
 	// Static assets — served with a long-lived immutable cache header.
@@ -143,6 +183,15 @@ func main() {
 	mux.Handle("DELETE /rooms/{id}/messages/{msgID}", authMW(http.HandlerFunc(messagesHandler.HandleDelete)))
 	mux.Handle("PATCH /rooms/{id}/messages/{msgID}", authMW(http.HandlerFunc(messagesHandler.HandleEdit)))
 	mux.Handle("POST /rooms/{id}/messages/{msgID}/reactions", authMW(http.HandlerFunc(reactionsHandler.HandleToggle)))
+	mux.Handle("GET /rooms/{id}/members", authMW(http.HandlerFunc(notificationsHandler.HandleRoomMembers)))
+
+	// Push notification routes.
+	mux.HandleFunc("GET /push/vapid-public-key", notificationsHandler.HandleVAPIDPublicKey)
+	mux.Handle("POST /push/subscribe", authMW(http.HandlerFunc(notificationsHandler.HandleSubscribe)))
+	mux.Handle("DELETE /push/subscribe", authMW(http.HandlerFunc(notificationsHandler.HandleUnsubscribe)))
+	mux.Handle("GET /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleGetMute)))
+	mux.Handle("POST /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleSetMute)))
+	mux.Handle("DELETE /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleClearMute)))
 
 	// Media upload — only available when S3 is configured.
 	if s3Client != nil {

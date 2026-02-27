@@ -1,0 +1,105 @@
+// Package webpush sends Web Push notifications using VAPID authentication.
+package webpush
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"net/http"
+	"strings"
+
+	webpushlib "github.com/SherClockHolmes/webpush-go"
+)
+
+// Config holds the VAPID credentials needed to send push notifications.
+type Config struct {
+	// VAPIDPublicKey is the base64url-encoded uncompressed P-256 public key.
+	VAPIDPublicKey string
+	// VAPIDPrivateKey is the base64url-encoded P-256 private key.
+	VAPIDPrivateKey string
+	// VAPIDSubject is a contact URI (mailto: or https:) included in the VAPID JWT.
+	VAPIDSubject string
+}
+
+// IsConfigured returns true when all three VAPID fields are non-empty.
+func (c Config) IsConfigured() bool {
+	return c.VAPIDPublicKey != "" && c.VAPIDPrivateKey != "" && c.VAPIDSubject != ""
+}
+
+// Payload is the JSON body delivered by the Service Worker push event.
+type Payload struct {
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Icon      string `json:"icon,omitempty"`
+	Tag       string `json:"tag,omitempty"`
+	IsMention bool   `json:"isMention,omitempty"`
+	RoomID    string `json:"roomId,omitempty"`
+	URL       string `json:"url,omitempty"`
+}
+
+// Sender sends Web Push notifications.
+type Sender struct {
+	cfg Config
+}
+
+// New returns a Sender. Call IsConfigured() on the config before using.
+func New(cfg Config) *Sender {
+	return &Sender{cfg: cfg}
+}
+
+// Send delivers a push notification to a single subscription JSON string.
+// It returns (expired bool, err error). expired is true when the push service
+// responds with 410 Gone, meaning the subscription is no longer valid.
+func (s *Sender) Send(ctx context.Context, subscriptionJSON string, p Payload) (expired bool, err error) {
+	sub := &webpushlib.Subscription{}
+	if err := json.Unmarshal([]byte(subscriptionJSON), sub); err != nil {
+		return false, err
+	}
+
+	body, err := json.Marshal(p)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := webpushlib.SendNotificationWithContext(ctx, body, sub, &webpushlib.Options{
+		VAPIDPublicKey:  s.cfg.VAPIDPublicKey,
+		VAPIDPrivateKey: s.cfg.VAPIDPrivateKey,
+		Subscriber:      s.cfg.VAPIDSubject,
+		TTL:             86400, // 24 hours
+		Urgency:         webpushlib.UrgencyNormal,
+	})
+	if err != nil {
+		// Some push services return HTTP errors as Go errors via a non-nil resp;
+		// others surface them as err directly. Handle both.
+		if strings.Contains(err.Error(), "410") {
+			return true, nil
+		}
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusGone {
+		return true, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, nil // non-fatal: best-effort delivery
+	}
+	return false, nil
+}
+
+// SendToMany delivers a push notification to multiple subscription JSON strings.
+// It logs errors and returns a slice of expired endpoints to remove from storage.
+// Runs synchronously; the caller should invoke in a goroutine for fire-and-forget use.
+func (s *Sender) SendToMany(ctx context.Context, subscriptions map[string]string, p Payload) []string {
+	var expired []string
+	for endpoint, subJSON := range subscriptions {
+		gone, err := s.Send(ctx, subJSON, p)
+		if err != nil {
+			log.Printf("webpush: send to %s: %v", endpoint, err)
+		}
+		if gone {
+			expired = append(expired, endpoint)
+		}
+	}
+	return expired
+}

@@ -41,6 +41,7 @@ A simple public chat-room web app built with Go and HTMX. Real-time via Server-S
 - Message delete (author only; SSE-broadcast to all clients)
 - Emoji reactions (toggle; preset popover + full picker; SSE-broadcast)
 - Emoji shortcode autocomplete (`:thumbs` → dropdown in textarea)
+- @mention autocomplete (`@Name` → dropdown of room members; `GET /rooms/{id}/members`)
 - Link preview unfurls via Microlink (async; Redis-cached)
 - Media attachments: paste, drag-drop, file picker → presigned S3 PUT
 - Fenced code blocks with syntax highlighting and copy button
@@ -50,6 +51,14 @@ A simple public chat-room web app built with Go and HTMX. Real-time via Server-S
 - Light/dark/auto theme toggle (persisted in localStorage)
 - Cache-busted static assets (`?v=<gitSHA>`)
 - Keyboard-centric navigation: textarea auto-focus on load; `ArrowUp` on empty textarea enters message navigation mode (`message--active` CSS outline); `ArrowDown` exits nav at the last message; `Escape` cancels open edit or clears nav and returns to textarea; `e` opens edit on the active message (owner only); `d` deletes with `window.confirm()` (owner only)
+- **Web Push notifications** (VAPID; optional — enabled when `VAPID_*` env vars set):
+  - User-triggered opt-in: bell icon in header → `Notification.requestPermission()` → subscribe
+  - Service Worker at `/sw.js` (root scope, no-cache); suppresses OS notification when a tab is visible
+  - Multi-tab BroadcastChannel leader election: most-recently-active tab wins; only leader plays chime
+  - In-tab chime (`/static/chime.mp3`) plays when tab is leader and `document.hidden`
+  - Mute/DND: server-side in Redis; durations: 1h / 8h / 24h / 1 week / indefinite; bell shows Zzz state
+  - @mention-aware push: title says "X mentioned you" for direct `@Name` mentions
+  - Expired subscriptions (410 from push service) auto-deleted from Redis
 
 ---
 
@@ -66,6 +75,8 @@ internal/
     messages.go                # POST /rooms/{id}/messages (204); GET /rooms/{id}/messages (history)
                                #   DELETE /rooms/{id}/messages/{msgID} (author-only)
                                #   hydrateMessages() — user+unfurl+reactions per message
+                               #   sendPushNotifications() — async Web Push after save
+    notifications.go           # Push subscribe/unsubscribe, mute, VAPID key, room members
     reactions.go               # POST /rooms/{id}/messages/{msgID}/reactions — toggle, SSE broadcast
     upload.go                  # GET /rooms/{id}/upload-url — presigned S3 PUT (optional)
     sse.go                     # GET /rooms/{id}/events — Redis Pub/Sub → SSE fan-out
@@ -78,6 +89,8 @@ internal/
     client.go                  # All Redis operations (typed helpers only — no raw commands in handlers)
   storage/
     s3.go                      # S3Client: PresignPut, PublicURL, KeyFromURL, DeleteObjects, MediaKey
+  webpush/
+    sender.go                  # Sender: Send(), SendToMany(); Config (VAPID keys)
   tmpl/
     render.go                  # Renderer; funcMap (renderText, linkify, reactionData, …); ChromaCSS
 web/
@@ -94,6 +107,8 @@ web/
     style.css                  # All styles
     favicon.svg
     logo_square_256.png
+    sw.js                      # Service Worker (served at /sw.js, root scope, no-cache)
+    chime.mp3                  # In-tab notification chime sound
 compose.yml                    # Docker Compose: app + Redis + RedisInsight + MinIO
 Dockerfile / Dockerfile.prod   # Dev and production builds
 .air.toml                      # Air live-reload config (dev)
@@ -116,8 +131,17 @@ POST /rooms/{id}/messages                  — post message → 204 (SSE deliver
 GET  /rooms/{id}/messages?before=<ms>&limit=50  — paginated history partial
 DELETE /rooms/{id}/messages/{msgID}        — delete own message → 204 + SSE delete event
 POST /rooms/{id}/messages/{msgID}/reactions — toggle emoji reaction → 204 + SSE reaction event
+GET  /rooms/{id}/members                   — room member list for @mention autocomplete
 GET  /rooms/{id}/upload-url?hash=&content_type=&content_length=  — presign S3 PUT (optional)
 
+GET  /push/vapid-public-key                — VAPID public key (unauthenticated)
+POST /push/subscribe                       — save Web Push subscription
+DELETE /push/subscribe                     — remove Web Push subscription
+GET  /settings/mute                        — get current mute state
+POST /settings/mute                        — set mute duration (1h/8h/24h/168h/forever)
+DELETE /settings/mute                      — clear mute
+
+GET  /sw.js                                — Service Worker (root scope; no-cache)
 GET  /static/*                             — embedded static files (immutable cache)
 GET  /static/chroma.css                    — generated syntax-highlight CSS
 ```
@@ -131,10 +155,13 @@ sessions:{token}                        Hash    id, name, avatar_url; TTL 90 day
 oauth:state:{state}                     String  CSRF state; TTL 10 min (consumed on use)
 users:{uuid}                            Hash    id, name, avatar_url, email, created_at (no TTL)
 users:{uuid}:identities                 Set     "{provider}:{providerUserID}" members (no TTL)
+users:{uuid}:push_subscriptions         Hash    endpoint → subscriptionJSON (no TTL)
+users:{uuid}:mute_until                 String  unix ms timestamp or "forever"; TTL = mute duration (or none)
 identities:{provider}:{providerUserID}  String  canonical uuid (no TTL)
 rooms                                   ZSet    room IDs scored by creation time (unix seconds)
 rooms:{id}                              Hash    id, name
 rooms:{id}:messages                     ZSet    message IDs scored by created_at (unix ms); cleaned on write
+rooms:{id}:members                      ZSet    user IDs scored by last-post time (unix ms); no TTL
 rooms:{id}:events                       Pub/Sub SSE fan-out channel
 messages:{msg-id}                       Hash    id, room_id, user_id, text, attachments (JSON), created_at (ms); TTL 30 days
 reactions:{msg-id}                      Hash    emoji → count; TTL 30 days
@@ -265,6 +292,10 @@ S3_BUCKET
 S3_REGION              MinIO accepts any string (e.g. us-east-1)
 S3_ACCESS_KEY_ID
 S3_SECRET_ACCESS_KEY
+
+VAPID_PUBLIC_KEY       base64url P-256 public key; omit to disable Web Push
+VAPID_PRIVATE_KEY      base64url P-256 private key
+VAPID_SUBJECT          contact URI, e.g. mailto:admin@yourdomain.com
 ```
 
 ---

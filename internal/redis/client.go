@@ -465,6 +465,119 @@ func (c *Client) Subscribe(ctx context.Context, roomID string) *goredis.PubSub {
 }
 
 // ---------------------------------------------------------------------------
+// Room members
+// ---------------------------------------------------------------------------
+
+// TouchRoomMember records that userID is a member of roomID, scoring by
+// current unix milliseconds so the most-recently-active user has the highest score.
+func (c *Client) TouchRoomMember(ctx context.Context, roomID, userID string) error {
+	score := float64(time.Now().UnixMilli())
+	return c.rdb.ZAdd(ctx, "rooms:"+roomID+":members", goredis.Z{Score: score, Member: userID}).Err()
+}
+
+// GetRoomMembers returns all user IDs that have ever posted in the room,
+// ordered by most-recently-active first.
+func (c *Client) GetRoomMembers(ctx context.Context, roomID string) ([]string, error) {
+	return c.rdb.ZRevRange(ctx, "rooms:"+roomID+":members", 0, -1).Result()
+}
+
+// ---------------------------------------------------------------------------
+// Push subscriptions
+// ---------------------------------------------------------------------------
+
+// SavePushSubscription stores a Web Push subscription for a user.
+// The subscription JSON is keyed by its endpoint URL (which is unique per browser/device).
+func (c *Client) SavePushSubscription(ctx context.Context, userID, endpoint, subscriptionJSON string) error {
+	return c.rdb.HSet(ctx, "users:"+userID+":push_subscriptions", endpoint, subscriptionJSON).Err()
+}
+
+// DeletePushSubscription removes a specific push subscription by endpoint.
+func (c *Client) DeletePushSubscription(ctx context.Context, userID, endpoint string) error {
+	return c.rdb.HDel(ctx, "users:"+userID+":push_subscriptions", endpoint).Err()
+}
+
+// GetPushSubscriptions returns all push subscription JSON strings for a user.
+func (c *Client) GetPushSubscriptions(ctx context.Context, userID string) ([]string, error) {
+	vals, err := c.rdb.HVals(ctx, "users:"+userID+":push_subscriptions").Result()
+	if err != nil {
+		return nil, err
+	}
+	return vals, nil
+}
+
+// GetAllPushSubscriptions returns a map of endpoint → subscriptionJSON for a user.
+func (c *Client) GetAllPushSubscriptions(ctx context.Context, userID string) (map[string]string, error) {
+	return c.rdb.HGetAll(ctx, "users:"+userID+":push_subscriptions").Result()
+}
+
+// ---------------------------------------------------------------------------
+// Mute / DND
+// ---------------------------------------------------------------------------
+
+const muteForever = "forever"
+
+// SetMute sets a mute duration for a user. Pass 0 for indefinite mute.
+func (c *Client) SetMute(ctx context.Context, userID string, duration time.Duration) error {
+	key := "users:" + userID + ":mute_until"
+	if duration == 0 {
+		// Indefinite: store sentinel value with no TTL.
+		return c.rdb.Set(ctx, key, muteForever, 0).Err()
+	}
+	until := strconv.FormatInt(time.Now().Add(duration).UnixMilli(), 10)
+	return c.rdb.Set(ctx, key, until, duration).Err()
+}
+
+// ClearMute removes the mute for a user.
+func (c *Client) ClearMute(ctx context.Context, userID string) error {
+	return c.rdb.Del(ctx, "users:"+userID+":mute_until").Err()
+}
+
+// IsMuted returns true if the user is currently muted.
+func (c *Client) IsMuted(ctx context.Context, userID string) (bool, error) {
+	val, err := c.rdb.Get(ctx, "users:"+userID+":mute_until").Result()
+	if err == goredis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if val == muteForever {
+		return true, nil
+	}
+	// Parse as unix ms timestamp.
+	ms, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return false, nil
+	}
+	return time.Now().UnixMilli() < ms, nil
+}
+
+// GetMuteUntil returns when the mute expires. Returns zero time if not muted,
+// and time.Time{} with isMuted=false if expired.
+// Returns (time.Time{Max}, true) for indefinite mutes.
+func (c *Client) GetMuteUntil(ctx context.Context, userID string) (until time.Time, isMuted bool, err error) {
+	val, err := c.rdb.Get(ctx, "users:"+userID+":mute_until").Result()
+	if err == goredis.Nil {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if val == muteForever {
+		return time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), true, nil
+	}
+	ms, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return time.Time{}, false, nil
+	}
+	t := time.UnixMilli(ms)
+	if time.Now().After(t) {
+		return time.Time{}, false, nil
+	}
+	return t, true, nil
+}
+
+// ---------------------------------------------------------------------------
 // Unfurls
 // ---------------------------------------------------------------------------
 

@@ -17,9 +17,15 @@ import (
 	redisclient "github.com/emilhauk/chat/internal/redis"
 	"github.com/emilhauk/chat/internal/storage"
 	"github.com/emilhauk/chat/internal/tmpl"
+	"github.com/emilhauk/chat/internal/webpush"
 )
 
 var urlRe = regexp.MustCompile(`https?://[^\s]+`)
+
+// mentionRe matches @Name patterns. Names may contain letters, digits,
+// spaces, hyphens and underscores (up to 64 chars). The match is
+// terminated by end-of-string or a non-name character.
+var mentionRe = regexp.MustCompile(`@([\w][\w\s\-]{0,62}[\w]|[\w])`)
 
 // MessagesHandler handles message posting and history pagination.
 type MessagesHandler struct {
@@ -28,6 +34,9 @@ type MessagesHandler struct {
 	// S3 is optional. When set, attached media files are deleted from the bucket
 	// alongside the message record on deletion.
 	S3 *storage.S3Client
+	// Push is optional. When set, Web Push notifications are sent on new messages.
+	Push    *webpush.Sender
+	BaseURL string
 }
 
 // HandlePost handles POST /rooms/{id}/messages.
@@ -98,13 +107,118 @@ func (h *MessagesHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		_ = h.Redis.Publish(r.Context(), roomID, "msg:"+html)
 	}
 
+	// Track room membership (scored by time so we know who's recently active).
+	go func() {
+		ctx2 := context.Background()
+		_ = h.Redis.TouchRoomMember(ctx2, roomID, user.ID)
+	}()
+
 	// Async unfurl.
 	if rawURL := urlRe.FindString(text); rawURL != "" {
 		go h.fetchAndPublishUnfurl(rawURL, msg.ID, roomID)
 	}
 
+	// Async Web Push notifications.
+	if h.Push != nil {
+		mentionedNames := extractMentionedNames(text)
+		go h.sendPushNotifications(msg, mentionedNames)
+	}
+
 	// Message delivered via SSE to all clients (including sender); no body needed.
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// extractMentionedNames returns the unique lowercased display names found in
+// @mention patterns within the message text.
+func extractMentionedNames(text string) []string {
+	matches := mentionRe.FindAllStringSubmatch(text, -1)
+	seen := make(map[string]bool)
+	var names []string
+	for _, m := range matches {
+		name := strings.ToLower(strings.TrimSpace(m[1]))
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// sendPushNotifications delivers Web Push to all room members except the sender.
+// mentionedNames is the list of lowercased display names @mentioned in the message.
+func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedNames []string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	members, err := h.Redis.GetRoomMembers(ctx, msg.RoomID)
+	if err != nil {
+		log.Printf("webpush: get room members: %v", err)
+		return
+	}
+
+	senderName := ""
+	if msg.User != nil {
+		senderName = msg.User.Name
+	}
+
+	mentionSet := make(map[string]bool, len(mentionedNames))
+	for _, n := range mentionedNames {
+		mentionSet[n] = true
+	}
+
+	roomURL := h.BaseURL + "/rooms/" + msg.RoomID
+
+	for _, memberID := range members {
+		if memberID == msg.UserID {
+			continue // don't notify the sender
+		}
+
+		muted, err := h.Redis.IsMuted(ctx, memberID)
+		if err != nil {
+			log.Printf("webpush: check mute for %s: %v", memberID, err)
+		}
+		if muted {
+			continue
+		}
+
+		subs, err := h.Redis.GetAllPushSubscriptions(ctx, memberID)
+		if err != nil || len(subs) == 0 {
+			continue
+		}
+
+		// Fetch member name to check if they were mentioned.
+		member, err := h.Redis.GetUser(ctx, memberID)
+		if err != nil || member == nil {
+			continue
+		}
+
+		isMention := mentionSet[strings.ToLower(member.Name)]
+
+		body := msg.Text
+		if len(body) > 120 {
+			body = body[:117] + "…"
+		}
+
+		title := senderName
+		if isMention {
+			title = senderName + " mentioned you"
+		}
+
+		payload := webpush.Payload{
+			Title:     title,
+			Body:      body,
+			Icon:      h.BaseURL + "/static/logo_square_256.png",
+			Tag:       "msg-" + msg.RoomID,
+			IsMention: isMention,
+			RoomID:    msg.RoomID,
+			URL:       roomURL,
+		}
+
+		expired := h.Push.SendToMany(ctx, subs, payload)
+		for _, endpoint := range expired {
+			_ = h.Redis.DeletePushSubscription(ctx, memberID, endpoint)
+		}
+	}
 }
 
 // HandleHistory handles GET /rooms/{id}/messages?before=<ms>&limit=50.

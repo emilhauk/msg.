@@ -12,6 +12,42 @@
       <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
     </svg>
   </button>
+
+  {{/* Notification bell — states: off (no permission/not subscribed), on (subscribed), muted */}}
+  <div class="notif-wrap" id="notif-wrap">
+    <button class="btn btn--icon notif-bell" id="notif-bell" aria-label="Enable notifications" data-state="off">
+      {{/* Bell-off SVG (default) */}}
+      <svg class="notif-bell__icon notif-bell__icon--off" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        <line x1="1" y1="1" x2="23" y2="23"/>
+      </svg>
+      {{/* Bell-on SVG */}}
+      <svg class="notif-bell__icon notif-bell__icon--on" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      {{/* Bell-muted SVG */}}
+      <svg class="notif-bell__icon notif-bell__icon--muted" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        <text x="8" y="11" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">Zzz</text>
+      </svg>
+    </button>
+    {{/* Mute popover */}}
+    <div class="notif-popover" id="notif-popover" hidden>
+      <p class="notif-popover__label">Mute notifications for…</p>
+      <button class="notif-popover__item" data-mute="1h">1 hour</button>
+      <button class="notif-popover__item" data-mute="8h">8 hours</button>
+      <button class="notif-popover__item" data-mute="24h">24 hours</button>
+      <button class="notif-popover__item" data-mute="168h">1 week</button>
+      <button class="notif-popover__item" data-mute="forever">Indefinitely</button>
+      <hr class="notif-popover__sep">
+      <button class="notif-popover__item notif-popover__item--unmute" id="notif-unmute" hidden>Unmute</button>
+      <button class="notif-popover__item notif-popover__item--danger" id="notif-unsubscribe">Turn off notifications</button>
+    </div>
+  </div>
+
   <span class="site-header__username">{{.Data.User.Name}}</span>
   <form method="post" action="/auth/logout" style="display:inline">
     <button class="btn btn--ghost btn--sm" type="submit">Sign out</button>
@@ -63,6 +99,9 @@
 
     {{/* Emoji shortcode autocomplete dropdown */}}
     <ul id="emoji-autocomplete" class="emoji-autocomplete" role="listbox" aria-label="Emoji suggestions" hidden></ul>
+
+    {{/* @mention autocomplete dropdown */}}
+    <ul id="mention-autocomplete" class="emoji-autocomplete mention-autocomplete" role="listbox" aria-label="Mention suggestions" hidden></ul>
 
     {{/* Drag-and-drop overlay — shown while a file drag is over the room column */}}
     <div id="drop-overlay" class="drop-overlay" aria-hidden="true" hidden>
@@ -1133,6 +1172,394 @@
     document.addEventListener('htmx:sseMessage', function () {
       if (activeMsg && !document.body.contains(activeMsg)) {
         setActive(null);
+      }
+    });
+  }());
+
+  // ---- @mention autocomplete ----
+  // Mirrors the emoji shortcode autocomplete pattern but triggered by '@'.
+  (function () {
+    var roomID = '{{.Data.Room.ID}}';
+    var ta     = document.querySelector('.message-form__textarea');
+    var list   = document.getElementById('mention-autocomplete');
+    if (!ta || !list) return;
+
+    var members = [];           // cached [{id, name, avatar_url}]
+    var activeIdx = -1;
+    var matchStart = -1;
+    var matchEnd   = -1;
+
+    function loadMembers() {
+      fetch('/rooms/' + roomID + '/members', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { members = data || []; })
+        .catch(function () {});
+    }
+    loadMembers();
+
+    function getItems() { return list.querySelectorAll('.emoji-autocomplete__item'); }
+
+    function highlight(idx) {
+      getItems().forEach(function (el, i) {
+        el.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      });
+      activeIdx = idx;
+    }
+
+    function hideDropdown() {
+      list.hidden = true;
+      list.innerHTML = '';
+      activeIdx  = -1;
+      matchStart = -1;
+      matchEnd   = -1;
+    }
+
+    function positionDropdown() {
+      var rect = ta.getBoundingClientRect();
+      list.style.left   = rect.left + 'px';
+      list.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+      list.style.width  = rect.width + 'px';
+    }
+
+    function insertMention(name) {
+      if (matchStart < 0) return;
+      var before = ta.value.slice(0, matchStart);
+      var after  = ta.value.slice(matchEnd);
+      ta.value = before + '@' + name + ' ' + after;
+      var pos = matchStart + name.length + 2;
+      ta.selectionStart = ta.selectionEnd = pos;
+      ta.dispatchEvent(new Event('input'));
+      ta.focus();
+      hideDropdown();
+    }
+
+    // Returns { query, start, end } or null if cursor isn't after an @word.
+    function getFragment() {
+      var cursor = ta.selectionStart;
+      var text   = ta.value.slice(0, cursor);
+      var i = cursor - 1;
+      // Walk back through word chars + spaces (but not newlines)
+      while (i >= 0 && /[^\n@]/.test(text[i])) i--;
+      if (i < 0 || text[i] !== '@') return null;
+      var query = text.slice(i + 1);
+      if (query.length === 0) return null;
+      return { query: query.toLowerCase(), start: i, end: cursor };
+    }
+
+    ta.addEventListener('input', function () {
+      var frag = getFragment();
+      if (!frag) { hideDropdown(); return; }
+      matchStart = frag.start;
+      matchEnd   = frag.end;
+
+      var q = frag.query;
+      var results = members.filter(function (m) {
+        return m.name.toLowerCase().startsWith(q);
+      }).slice(0, 8);
+
+      if (results.length === 0) { hideDropdown(); return; }
+
+      list.innerHTML = results.map(function (m, idx) {
+        var initials = m.name.slice(0, 1).toUpperCase();
+        var avatar = m.avatar_url
+          ? '<img src="' + m.avatar_url + '" width="20" height="20" alt="" style="border-radius:50%;object-fit:cover;">'
+          : '<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--color-primary);color:#fff;font-size:.7rem;font-weight:600;">' + initials + '</span>';
+        return '<li class="emoji-autocomplete__item"' +
+          ' role="option" aria-selected="false"' +
+          ' data-name="' + m.name.replace(/"/g, '&quot;') + '"' +
+          ' data-idx="' + idx + '">' +
+          '<span class="emoji-autocomplete__glyph" style="width:auto;">' + avatar + '</span>' +
+          '<span class="emoji-autocomplete__name">@' + m.name + '</span>' +
+          '</li>';
+      }).join('');
+
+      positionDropdown();
+      list.hidden = false;
+      highlight(-1);
+
+      list.querySelectorAll('.emoji-autocomplete__item').forEach(function (el) {
+        el.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          insertMention(el.dataset.name);
+        });
+        el.addEventListener('mouseover', function () {
+          highlight(parseInt(el.dataset.idx, 10));
+        });
+      });
+    });
+
+    ta.addEventListener('keydown', function (e) {
+      if (list.hidden) return;
+      var items = getItems();
+      var count = items.length;
+      if (count === 0) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); highlight((activeIdx + 1) % count); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); highlight((activeIdx - 1 + count) % count); }
+      else if (e.key === 'Enter' || e.key === 'Tab') {
+        var target = activeIdx >= 0 ? items[activeIdx] : items[0];
+        if (target) { e.preventDefault(); insertMention(target.dataset.name); }
+      } else if (e.key === 'Escape') { e.preventDefault(); hideDropdown(); }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!list.hidden && !list.contains(e.target) && e.target !== ta) hideDropdown();
+    });
+    ta.addEventListener('blur', function () {
+      setTimeout(function () { if (!list.hidden) hideDropdown(); }, 150);
+    });
+
+    // Refresh member list when a new message is received (someone new may have joined).
+    document.body.addEventListener('htmx:sseMessage', loadMembers);
+  }());
+
+  // ---- Notifications: SW registration, push subscription, mute, leader election, chime ----
+  (function () {
+    var ROOM_ID = '{{.Data.Room.ID}}';
+    var CHIME_URL = '/static/chime.mp3?v={{$.BuildVersion}}';
+
+    // ------------------------------------------------------------------
+    // BroadcastChannel leader election
+    // The tab with the most recent heartbeat timestamp is the "leader".
+    // Only the leader plays the in-tab chime / shows an in-page toast.
+    // ------------------------------------------------------------------
+    var TAB_ID = Math.random().toString(36).slice(2);
+    var lastHeartbeats = {}; // tabId → timestamp
+    lastHeartbeats[TAB_ID] = Date.now();
+
+    var bc;
+    try { bc = new BroadcastChannel('msg-notifications'); } catch (_) { bc = null; }
+
+    function broadcastHeartbeat() {
+      lastHeartbeats[TAB_ID] = Date.now();
+      if (bc) bc.postMessage({ type: 'heartbeat', tabId: TAB_ID, ts: Date.now() });
+    }
+
+    function isLeader() {
+      // This tab is the leader if it has the highest (most recent) heartbeat.
+      var myTs = lastHeartbeats[TAB_ID] || 0;
+      for (var id in lastHeartbeats) {
+        if (id !== TAB_ID && lastHeartbeats[id] > myTs) return false;
+      }
+      return true;
+    }
+
+    if (bc) {
+      bc.onmessage = function (e) {
+        if (e.data && e.data.type === 'heartbeat') {
+          lastHeartbeats[e.data.tabId] = e.data.ts;
+        }
+      };
+    }
+
+    // Broadcast on visibility change and focus events so leadership transfers
+    // to the newly active tab quickly.
+    document.addEventListener('visibilitychange', broadcastHeartbeat);
+    window.addEventListener('focus', broadcastHeartbeat);
+    // Initial heartbeat + periodic keepalive (every 5s).
+    broadcastHeartbeat();
+    setInterval(broadcastHeartbeat, 5000);
+
+    // ------------------------------------------------------------------
+    // In-tab chime + toast
+    // ------------------------------------------------------------------
+    var chimeAudio = null;
+
+    function playChime() {
+      try {
+        if (!chimeAudio) chimeAudio = new Audio(CHIME_URL);
+        // Clone so rapid messages don't block.
+        chimeAudio.cloneNode().play().catch(function () {});
+      } catch (_) {}
+    }
+
+    function shouldNotifyInTab() {
+      // Only notify if this tab is the leader AND the document is hidden
+      // (i.e. user isn't actively looking at this tab).
+      return isLeader() && document.hidden;
+    }
+
+    // Listen to HTMX SSE message events (fires when a new message is injected).
+    document.body.addEventListener('htmx:sseMessage', function () {
+      if (shouldNotifyInTab()) {
+        playChime();
+      }
+    });
+
+    // ------------------------------------------------------------------
+    // Service Worker registration
+    // ------------------------------------------------------------------
+    var swRegistration = null;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then(function (reg) {
+          swRegistration = reg;
+          // Sync push subscription state with our stored UI state.
+          reg.pushManager.getSubscription().then(function (sub) {
+            if (sub) {
+              setBellState('on');
+              checkMuteState();
+            } else {
+              setBellState('off');
+            }
+          });
+        })
+        .catch(function (err) {
+          console.warn('SW registration failed:', err);
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Bell UI state
+    // ------------------------------------------------------------------
+    var bell     = document.getElementById('notif-bell');
+    var popover  = document.getElementById('notif-popover');
+    var unmuteBtn = document.getElementById('notif-unmute');
+    var unsubBtn  = document.getElementById('notif-unsubscribe');
+
+    function setBellState(state) {
+      if (!bell) return;
+      bell.dataset.state = state;
+      var labels = { off: 'Enable notifications', on: 'Notification settings', muted: 'Notifications muted — click to manage' };
+      bell.setAttribute('aria-label', labels[state] || 'Notifications');
+    }
+
+    function checkMuteState() {
+      fetch('/settings/mute', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.muted) {
+            setBellState('muted');
+            if (unmuteBtn) unmuteBtn.hidden = false;
+          } else {
+            setBellState('on');
+            if (unmuteBtn) unmuteBtn.hidden = true;
+          }
+        })
+        .catch(function () {});
+    }
+
+    // ------------------------------------------------------------------
+    // Push subscription helpers
+    // ------------------------------------------------------------------
+    function urlBase64ToUint8Array(base64String) {
+      var padding = '='.repeat((4 - base64String.length % 4) % 4);
+      var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      var rawData = atob(base64);
+      var output = new Uint8Array(rawData.length);
+      for (var i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
+      return output;
+    }
+
+    function subscribeForPush() {
+      if (!swRegistration) return Promise.reject(new Error('SW not ready'));
+      return fetch('/push/vapid-public-key', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          return swRegistration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(data.key),
+          });
+        })
+        .then(function (sub) {
+          return fetch('/push/subscribe', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sub.toJSON()),
+          }).then(function () { return sub; });
+        });
+    }
+
+    function unsubscribeFromPush() {
+      if (!swRegistration) return Promise.resolve();
+      return swRegistration.pushManager.getSubscription().then(function (sub) {
+        if (!sub) return;
+        var endpoint = sub.endpoint;
+        return sub.unsubscribe().then(function () {
+          return fetch('/push/subscribe', {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: endpoint }),
+          });
+        });
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // Bell click handler
+    // ------------------------------------------------------------------
+    if (bell) {
+      bell.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var state = bell.dataset.state;
+
+        if (state === 'off') {
+          // Request permission, then subscribe.
+          Notification.requestPermission().then(function (perm) {
+            if (perm !== 'granted') return;
+            subscribeForPush()
+              .then(function () { setBellState('on'); })
+              .catch(function (err) { console.warn('Push subscribe failed:', err); });
+          });
+          return;
+        }
+
+        // Subscribed or muted — toggle popover.
+        if (popover) {
+          var isOpen = !popover.hidden;
+          popover.hidden = isOpen;
+        }
+      });
+    }
+
+    // Mute duration buttons.
+    if (popover) {
+      popover.querySelectorAll('[data-mute]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var dur = btn.dataset.mute;
+          fetch('/settings/mute', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration: dur }),
+          }).then(function () {
+            setBellState('muted');
+            if (unmuteBtn) unmuteBtn.hidden = false;
+            if (popover) popover.hidden = true;
+          });
+        });
+      });
+    }
+
+    // Unmute button.
+    if (unmuteBtn) {
+      unmuteBtn.addEventListener('click', function () {
+        fetch('/settings/mute', { method: 'DELETE', credentials: 'same-origin' })
+          .then(function () {
+            setBellState('on');
+            unmuteBtn.hidden = true;
+            if (popover) popover.hidden = true;
+          });
+      });
+    }
+
+    // Turn off notifications (unsubscribe).
+    if (unsubBtn) {
+      unsubBtn.addEventListener('click', function () {
+        unsubscribeFromPush().then(function () {
+          setBellState('off');
+          if (popover) popover.hidden = true;
+        });
+      });
+    }
+
+    // Close popover on outside click.
+    document.addEventListener('click', function (e) {
+      if (popover && !popover.hidden) {
+        var wrap = document.getElementById('notif-wrap');
+        if (wrap && !wrap.contains(e.target)) popover.hidden = true;
       }
     });
   }());
