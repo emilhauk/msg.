@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -17,6 +18,9 @@ const (
 	messageTTL = 30 * 24 * time.Hour
 	unfurlTTL  = 24 * time.Hour
 	unfurlFail = 15 * time.Minute
+
+	redisRetryAttempts = 5
+	redisRetryDelay    = 2 * time.Second
 )
 
 // Client wraps the go-redis client with typed helpers.
@@ -25,18 +29,30 @@ type Client struct {
 }
 
 // New parses the Redis URL and returns a connected Client.
+// It retries the initial ping up to redisRetryAttempts times with a fixed
+// delay of redisRetryDelay between attempts to accommodate slow container
+// startup races.
 func New(redisURL string) (*Client, error) {
 	opts, err := goredis.ParseURL(redisURL)
 	if err != nil {
 		return nil, fmt.Errorf("redis: parse URL: %w", err)
 	}
 	rdb := goredis.NewClient(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("redis: ping: %w", err)
+
+	var lastErr error
+	for attempt := 1; attempt <= redisRetryAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		lastErr = rdb.Ping(ctx).Err()
+		cancel()
+		if lastErr == nil {
+			return &Client{rdb: rdb}, nil
+		}
+		if attempt < redisRetryAttempts {
+			log.Printf("redis: ping failed (attempt %d/%d): %v, retrying in %s...", attempt, redisRetryAttempts, lastErr, redisRetryDelay)
+			time.Sleep(redisRetryDelay)
+		}
 	}
-	return &Client{rdb: rdb}, nil
+	return nil, fmt.Errorf("redis: ping failed after %d attempts: %w", redisRetryAttempts, lastErr)
 }
 
 // Close closes the underlying Redis connection.

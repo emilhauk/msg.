@@ -115,6 +115,13 @@ func main() {
 		staticHandler.ServeHTTP(w, r)
 	}))
 
+	// Health check — no auth required; must be reachable before a session exists.
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
 	// Auth routes (no auth required).
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		var errMsg string
