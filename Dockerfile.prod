@@ -9,7 +9,8 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.buildVersion=${GIT_SHA}" -o /msg .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.buildVersion=${GIT_SHA}" -o /msg . && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /createuser ./cmd/createuser
 
 FROM alpine:3.21
 
@@ -18,6 +19,7 @@ RUN apk add --no-cache ca-certificates tzdata curl
 WORKDIR /app
 
 COPY --from=builder /msg /app/msg
+COPY --from=builder /createuser /app/createuser
 COPY --from=builder /app/web ./web
 
 EXPOSE 8080
