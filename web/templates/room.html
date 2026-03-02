@@ -1436,6 +1436,20 @@
       // iOS Safari (browser mode): push not supported, don't wait for SW/push checks.
       setBellState('off');
     } else if ('serviceWorker' in navigator) {
+      // Secondary update trigger: fires when a new SW takes over via
+      // skipWaiting + clients.claim. Guard against first-install noise by
+      // only reacting when a SW was already controlling the page before.
+      var prevController = navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (!prevController) return; // first install — not a real update
+        if (!document.hasFocus()) {
+          window.location.reload();
+          return;
+        }
+        var hint = document.getElementById('update-hint');
+        if (hint) hint.hidden = false;
+      });
+
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then(function (reg) {
           swRegistration = reg;
