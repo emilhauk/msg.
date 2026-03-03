@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,10 +38,12 @@ var (
 	bob   = model.User{ID: bobUserID, Name: "Bob", Email: "bob@example.com"}
 )
 
-// newBrowser launches a headless Chromium browser and registers cleanup.
+// newBrowser launches a Chromium browser and registers cleanup.
+// Set HEADLESS=false in the environment to run with a visible browser window.
 func newBrowser(t *testing.T) *rod.Browser {
 	t.Helper()
-	l := launcher.New().Headless(true)
+	headless := os.Getenv("HEADLESS") != "false"
+	l := launcher.New().Headless(headless)
 	if path, exists := launcher.LookPath(); exists {
 		l = l.Bin(path)
 	}

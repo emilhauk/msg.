@@ -142,6 +142,50 @@ Or start everything via Docker Compose (uses Air inside the container):
 docker compose up
 ```
 
+## Testing
+
+### Unit and integration tests
+
+No external services required — tests use an in-process Redis (miniredis).
+
+```sh
+go test ./... -race -timeout 60s -count=1 -short
+```
+
+### JS linting
+
+```sh
+npm run lint
+```
+
+### E2E browser tests
+
+Requires headless Chromium (go-rod will find it automatically if installed).
+
+```sh
+go test ./internal/browser/... -v -timeout 120s
+```
+
+To run with a **visible browser window** — useful for debugging or watching tests execute:
+
+```sh
+HEADLESS=false go test ./internal/browser/... -v -timeout 120s
+```
+
+To run a single test:
+
+```sh
+HEADLESS=false go test ./internal/browser/... -v -timeout 120s -run TestThemeToggle_DarkOS
+```
+
+### Run everything
+
+```sh
+make test
+```
+
+This runs lint, unit/integration tests, and E2E browser tests in sequence.
+
 ## Container image
 
 Production images are published to the GitHub Container Registry on every push:
