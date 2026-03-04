@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - "**"
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".claude/**"
+      - "compose.yml"
+      - ".air.toml"
+      - ".gitignore"
 
 env:
   REGISTRY: ghcr.io
