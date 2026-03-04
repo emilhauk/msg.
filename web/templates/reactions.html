@@ -22,21 +22,6 @@
         <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
       </svg>
     </button>
-    <div class="reaction-preset-popover" data-reaction-popover="{{.MsgID}}" hidden>
-      {{$msgID := .MsgID}}{{$roomID := .RoomID}}
-      {{range presetEmojis}}
-      <button class="reaction-preset__btn"
-              hx-post="/rooms/{{$roomID}}/messages/{{$msgID}}/reactions"
-              hx-vals='{"emoji":"{{.}}"}'
-              hx-swap="none"
-              type="button"
-              aria-label="{{.}}">{{.}}</button>
-      {{end}}
-      <button class="reaction-preset__more"
-              type="button"
-              aria-label="More emojis"
-              data-reaction-more="{{.MsgID}}">&#8230;</button>
-    </div>
   </div>
 </div>
 {{end}}

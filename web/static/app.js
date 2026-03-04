@@ -36,6 +36,8 @@
   });
 
   document.addEventListener('emoji-click', (e) => {
+    // Reaction mode is handled entirely by room.js; skip textarea insertion.
+    if (container.dataset.mode === 'reaction') return;
     const textarea = document.querySelector('.message-form__textarea');
     if (textarea) {
       const pos = textarea.selectionStart ?? textarea.value.length;
@@ -49,11 +51,13 @@
   });
 
   // Close picker on outside click.
+  // Exclude the reaction-add button: room.js handles open/close for that.
   document.addEventListener('click', (e) => {
     if (
       !container.hidden &&
       !e.target.closest('#emoji-picker-container') &&
-      !e.target.closest('[data-emoji-toggle]')
+      !e.target.closest('[data-emoji-toggle]') &&
+      !e.target.closest('[data-reaction-add]')
     ) {
       container.hidden = true;
     }

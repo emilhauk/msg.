@@ -838,46 +838,9 @@ img { display: block; max-width: 100%; }
   .reaction-add { opacity: 1; }
 }
 
-.reaction-preset-popover {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 100;
-  display: flex;
-  flex-wrap: wrap;
-  gap: .25rem;
-  padding: .5rem;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  width: max-content;
-  max-width: 220px;
-}
-.reaction-preset-popover[hidden] { display: none; }
-
-.reaction-preset__btn,
-.reaction-preset__more {
-  font-size: 1.25rem;
-  line-height: 1;
-  width: 2rem;
-  height: 2rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background .1s;
-}
-.reaction-preset__btn:hover,
-.reaction-preset__more:hover {
-  background: var(--color-bg-subtle);
-}
-.reaction-preset__more {
-  font-size: .875rem;
-  color: var(--color-text-muted);
+/* Compact reaction picker — approximately four visible emoji rows */
+#emoji-picker-container[data-mode="reaction"] emoji-picker {
+  height: 280px;
 }
 
 /* ============================================================

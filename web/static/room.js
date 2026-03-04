@@ -1727,93 +1727,80 @@ function applyMyReactions(barEl, msgId) {
   });
 })();
 
-// ---- Reaction preset popover ----
+// ---- Reaction picker ----
+// Clicking the "add reaction" button opens the global emoji picker in reaction
+// mode, positioned above the button. Selecting an emoji POSTs the reaction.
 (() => {
-  let openPopover = null; // currently visible popover element
+  let openMsgId = null; // msgId for which the picker is currently open
 
-  function closeAll() {
-    if (openPopover) {
-      openPopover.hidden = true;
-      openPopover = null;
+  function closeReactionPicker() {
+    const container = document.getElementById('emoji-picker-container');
+    if (container && container.dataset.mode === 'reaction') {
+      container.hidden = true;
+      delete container.dataset.reactionTarget;
+      delete container.dataset.mode;
     }
+    openMsgId = null;
   }
 
-  // Toggle the popover when the add-reaction button is clicked.
   document.addEventListener('click', (e) => {
-    // "Add reaction" button
     const addBtn = e.target.closest('[data-reaction-add]');
     if (addBtn) {
       e.stopPropagation();
       const msgId = addBtn.dataset.reactionAdd;
-      const popover = document.querySelector(`[data-reaction-popover="${msgId}"]`);
-      if (!popover) return;
-      if (openPopover && openPopover !== popover) closeAll();
-      popover.hidden = !popover.hidden;
-      openPopover = popover.hidden ? null : popover;
-      return;
-    }
+      const container = document.getElementById('emoji-picker-container');
+      if (!container) return;
 
-    // "More emojis" button inside a popover — open the global emoji picker
-    // positioned relative to the triggering message.
-    const moreBtn = e.target.closest('[data-reaction-more]');
-    if (moreBtn) {
-      e.stopPropagation();
-      const msgId = moreBtn.dataset.reactionMore;
-      closeAll();
-      const picker = document.getElementById('emoji-picker-container');
-      if (!picker) return;
-      // Tag the picker with the target msgId so the emoji-click handler knows
-      // which message to react to.
-      picker.dataset.reactionTarget = msgId;
-      picker.dataset.mode = 'reaction';
-      picker.hidden = false;
-      return;
-    }
-
-    // Any preset emoji button — close popover after HTMX fires.
-    const presetBtn = e.target.closest('.reaction-preset__btn');
-    if (presetBtn) {
-      closeAll();
-      return;
-    }
-
-    // Click outside — close.
-    if (!e.target.closest('.reaction-add-wrap') && !e.target.closest('#emoji-picker-container')) {
-      closeAll();
-      const picker = document.getElementById('emoji-picker-container');
-      if (picker && picker.dataset.mode === 'reaction') {
-        picker.hidden = true;
-        delete picker.dataset.reactionTarget;
-        delete picker.dataset.mode;
+      // Toggle: clicking the same button again closes the picker.
+      if (openMsgId === msgId) {
+        closeReactionPicker();
+        return;
       }
+
+      // Position the picker above the "+" button (fixed coordinates).
+      const rect = addBtn.getBoundingClientRect();
+      const pickerWidth = 340;
+      let left = rect.left;
+      if (left + pickerWidth > window.innerWidth - 8) {
+        left = window.innerWidth - pickerWidth - 8;
+      }
+      container.style.left = `${Math.max(8, left)}px`;
+      container.style.right = '';
+      container.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+
+      openMsgId = msgId;
+      container.dataset.reactionTarget = msgId;
+      container.dataset.mode = 'reaction';
+      container.hidden = false;
+      return;
+    }
+
+    // Click outside the picker and add button — close.
+    if (!e.target.closest('#emoji-picker-container') && !e.target.closest('[data-reaction-add]')) {
+      if (openMsgId !== null) closeReactionPicker();
     }
   });
 
-  // Wire the global emoji-picker-element to also support reaction mode.
-  // When the picker is in reaction mode, emoji-click should POST a reaction
-  // instead of appending to the textarea.
-  const pickerEl = document.querySelector('emoji-picker');
-  if (pickerEl) {
-    pickerEl.addEventListener(
-      'emoji-click',
-      (ev) => {
-        const container = document.getElementById('emoji-picker-container');
-        if (!container || container.dataset.mode !== 'reaction') return;
-        const msgId = container.dataset.reactionTarget;
-        if (!msgId) return;
-        const emoji = ev.detail.unicode;
-        container.hidden = true;
-        delete container.dataset.reactionTarget;
-        delete container.dataset.mode;
-        // POST the reaction via fetch (no HTMX form available here).
-        const body = new URLSearchParams({ emoji: emoji });
-        fetch(`/rooms/${roomID}/messages/${msgId}/reactions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString(),
-        });
-      },
-      { capture: true },
-    );
-  }
+  // Wire emoji-click for reaction mode using a document-level capture listener.
+  // Capture on document fires before any bubble listener (including app.js) and
+  // avoids querying emoji-picker before it is parsed into the DOM.
+  document.addEventListener(
+    'emoji-click',
+    (ev) => {
+      const container = document.getElementById('emoji-picker-container');
+      if (!container || container.dataset.mode !== 'reaction') return;
+      ev.stopImmediatePropagation();
+      const msgId = container.dataset.reactionTarget;
+      if (!msgId) return;
+      const emoji = ev.detail.unicode;
+      closeReactionPicker();
+      const body = new URLSearchParams({ emoji });
+      fetch(`/rooms/${roomID}/messages/${msgId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+    },
+    { capture: true },
+  );
 })();

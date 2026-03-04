@@ -144,11 +144,6 @@ func renderText(s string) template.HTML {
 	return template.HTML(out.String())
 }
 
-// presetEmojis is the fixed list of quick-pick reaction emojis shown in the popover.
-var presetEmojiList = []string{"👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "👀", "🙏", "💯", "😍", "🤔"}
-
-func presetEmojis() []string { return presetEmojiList }
-
 // ReactionsTemplateData is the shape passed to the reactions.html template.
 type ReactionsTemplateData struct {
 	MsgID     string
@@ -187,7 +182,6 @@ func isVideoType(contentType string) bool {
 var funcMap = template.FuncMap{
 	"linkify":      linkify,
 	"renderText":   renderText,
-	"presetEmojis": presetEmojis,
 	"reactionData": reactionData,
 	"isImageType":  isImageType,
 	"isVideoType":  isVideoType,
