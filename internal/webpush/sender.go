@@ -2,8 +2,11 @@
 package webpush
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -82,7 +85,10 @@ func (s *Sender) Send(ctx context.Context, subscriptionJSON string, p Payload) (
 		return true, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return false, nil // non-fatal: best-effort delivery
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		log.Printf("webpush: push rejected endpoint=%s status=%d body=%s",
+			sub.Endpoint, resp.StatusCode, bytes.TrimSpace(body))
+		return false, fmt.Errorf("push service returned %d", resp.StatusCode)
 	}
 	return false, nil
 }

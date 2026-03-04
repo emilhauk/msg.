@@ -100,9 +100,9 @@ func TestSend_ServerError(t *testing.T) {
 	sender := newSender(t)
 	subJSON := testSubscriptionJSON(t, srv.URL)
 
-	// 5xx is non-fatal (best-effort): no error, not expired.
+	// non-2xx responses are now logged and returned as errors so APNs rejections are visible.
 	expired, err := sender.Send(context.Background(), subJSON, webpush.Payload{Title: "test", Body: "body"})
-	require.NoError(t, err)
+	assert.Error(t, err)
 	assert.False(t, expired)
 }
 
