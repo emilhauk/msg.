@@ -110,21 +110,61 @@
   if (!lightbox) return;
   const lightboxImg = lightbox.querySelector('.lightbox__img');
   const lightboxClose = lightbox.querySelector('.lightbox__close');
+  const prevBtn = lightbox.querySelector('.lightbox__nav--prev');
+  const nextBtn = lightbox.querySelector('.lightbox__nav--next');
+
+  let images = [];
+  let index = 0;
+
+  function show(i) {
+    index = i;
+    lightboxImg.src = images[index].src;
+    lightboxImg.alt = images[index].alt;
+    prevBtn.hidden = images.length < 2;
+    nextBtn.hidden = images.length < 2;
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index === images.length - 1;
+  }
+
+  function prev() { if (index > 0) show(index - 1); }
+  function next() { if (index < images.length - 1) show(index + 1); }
 
   document.addEventListener('click', (e) => {
     const img = e.target.closest('.message__media-img');
     if (!img) return;
     e.preventDefault();
-    lightboxImg.src = img.src;
-    lightboxImg.alt = img.alt;
+    const article = img.closest('article.message');
+    images = article
+      ? Array.from(article.querySelectorAll('.message__media-img'))
+      : [img];
+    show(images.indexOf(img));
     lightbox.showModal();
   });
 
   lightboxClose.addEventListener('click', () => lightbox.close());
+  prevBtn.addEventListener('click', prev);
+  nextBtn.addEventListener('click', next);
 
+  // Backdrop click closes.
   lightbox.addEventListener('click', (e) => {
     if (e.target === lightbox) lightbox.close();
   });
+
+  // Keyboard navigation (arrow keys + hjkl).
+  lightbox.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'h') { e.preventDefault(); prev(); }
+    else if (e.key === 'ArrowRight' || e.key === 'l') { e.preventDefault(); next(); }
+  });
+
+  // Touch swipe.
+  let touchStartX = 0;
+  lightbox.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  lightbox.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 40) dx < 0 ? next() : prev();
+  }, { passive: true });
 })();
 
 // Click-to-copy for code blocks.
