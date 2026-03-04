@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	webpushlib "github.com/SherClockHolmes/webpush-go"
@@ -104,6 +105,48 @@ func TestSend_ServerError(t *testing.T) {
 	expired, err := sender.Send(context.Background(), subJSON, webpush.Payload{Title: "test", Body: "body"})
 	assert.Error(t, err)
 	assert.False(t, expired)
+}
+
+// TestSend_VAPIDSubjectMailtoPrefix verifies that a VAPID_SUBJECT already
+// containing a "mailto:" prefix is not double-prefixed to "mailto:mailto:…".
+// webpush-go unconditionally prepends "mailto:" to non-https subscribers, so
+// we strip it before passing to the library. APNs enforces a valid URI in the
+// JWT sub claim; Chrome/FCM silently ignores the malformed value.
+func TestSend_VAPIDSubjectMailtoPrefix(t *testing.T) {
+	var capturedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	pub, priv := testVAPIDKeys(t)
+	sender := webpush.New(webpush.Config{
+		VAPIDPublicKey:  pub,
+		VAPIDPrivateKey: priv,
+		VAPIDSubject:    "mailto:admin@example.com", // already has the prefix
+	})
+
+	subJSON := testSubscriptionJSON(t, srv.URL)
+	_, err := sender.Send(context.Background(), subJSON, webpush.Payload{Title: "test"})
+	require.NoError(t, err)
+
+	// Extract the JWT from "vapid t=<jwt>, k=<key>"
+	parts := strings.SplitN(capturedAuth, "t=", 2)
+	require.Len(t, parts, 2, "unexpected Authorization header: %s", capturedAuth)
+	jwtToken := strings.SplitN(parts[1], ",", 2)[0]
+
+	// Decode the payload (middle segment) without verifying the signature.
+	segments := strings.Split(jwtToken, ".")
+	require.Len(t, segments, 3, "JWT must have 3 segments")
+	payload, err := base64.RawURLEncoding.DecodeString(segments[1])
+	require.NoError(t, err)
+
+	var claims map[string]any
+	require.NoError(t, json.Unmarshal(payload, &claims))
+
+	sub, _ := claims["sub"].(string)
+	assert.Equal(t, "mailto:admin@example.com", sub, "sub claim must not be double-prefixed")
 }
 
 func TestSend_InvalidJSON(t *testing.T) {

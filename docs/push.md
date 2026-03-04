@@ -109,10 +109,30 @@ APNs returns a JSON error body on rejection. Common reasons:
 
 | Reason | Meaning | Fix |
 |---|---|---|
-| `BadJWTToken` | VAPID JWT invalid or expired | Check VAPID key format and clock skew |
+| `BadJWTToken` | VAPID JWT invalid — most likely a malformed `sub` claim | See known bug below |
 | `BadDeviceToken` | Device token no longer valid | Remove subscription from Redis (treat as 410 Gone) |
 | `InvalidHeaders` | Missing or malformed headers | Library bug or misconfigured options |
 | `ExpiredSubscription` | Subscription has expired | Remove subscription from Redis |
+
+### Known bug: `mailto:` double-prefix (`BadJWTToken`)
+
+`webpush-go` unconditionally prepends `mailto:` to any subscriber that doesn't
+start with `https:`. If `VAPID_SUBJECT` is already a full `mailto:` URI (as
+documented), the library produces `mailto:mailto:admin@example.com` — an
+invalid URI in the JWT `sub` claim.
+
+Chrome/FCM silently ignores a malformed `sub`; APNs strictly validates it and
+returns `BadJWTToken`.
+
+**Fix (applied in `internal/webpush/sender.go`):** strip the `mailto:` prefix
+before passing to the library so it can add it back correctly:
+
+```go
+subscriber := strings.TrimPrefix(s.cfg.VAPIDSubject, "mailto:")
+```
+
+This is safe for `https:` subjects too — `TrimPrefix` is a no-op when the
+prefix is absent.
 
 Server logs will show the rejection with endpoint, status, and reason:
 

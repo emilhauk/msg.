@@ -64,10 +64,16 @@ func (s *Sender) Send(ctx context.Context, subscriptionJSON string, p Payload) (
 		return false, err
 	}
 
+	// webpush-go unconditionally prepends "mailto:" to any subscriber that
+	// doesn't start with "https:". Strip it first so VAPID_SUBJECT values
+	// like "mailto:admin@example.com" don't become "mailto:mailto:…" — a
+	// malformed URI that APNs rejects with BadJwtToken while Chrome/FCM ignores.
+	subscriber := strings.TrimPrefix(s.cfg.VAPIDSubject, "mailto:")
+
 	resp, err := webpushlib.SendNotificationWithContext(ctx, body, sub, &webpushlib.Options{
 		VAPIDPublicKey:  s.cfg.VAPIDPublicKey,
 		VAPIDPrivateKey: s.cfg.VAPIDPrivateKey,
-		Subscriber:      s.cfg.VAPIDSubject,
+		Subscriber:      subscriber,
 		TTL:             86400, // 24 hours
 		Urgency:         webpushlib.UrgencyNormal,
 	})
