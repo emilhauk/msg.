@@ -21,6 +21,7 @@ import (
 	"github.com/emilhauk/msg/internal/model"
 	"github.com/emilhauk/msg/internal/testutil"
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/assert"
@@ -203,25 +204,25 @@ func TestOwnerControls_SSEInsert_OtherUser(t *testing.T) {
 	}
 }
 
-// enterMsgNavMode focuses the compose textarea, clears it, and dispatches an
-// ArrowUp keydown to enter keyboard message-navigation mode. It waits for a
-// .message--active element to confirm the mode is active.
+// enterMsgNavMode focuses the compose textarea via a real pointer click, clears
+// it, then presses ArrowUp via a real keyboard event to enter message-navigation
+// mode. Using real events ensures the test fails if anything (e.g. an overlay)
+// is blocking pointer input.
 func enterMsgNavMode(t *testing.T, page *rod.Page) {
 	t.Helper()
-	page.MustEval(`() => {
-		const ta = document.querySelector('.message-form__textarea');
-		ta.focus();
-		ta.value = '';
-		ta.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowUp', bubbles: true, cancelable: true}));
-	}`)
+	// Real pointer click to focus the textarea — goes through hit-testing.
+	page.MustElement(".message-form__textarea").MustClick()
+	// Clear value (non-interactive setup, does not test UI).
+	page.MustEval(`() => document.querySelector('.message-form__textarea').value = ''`)
+	// Real keyboard event to trigger the ArrowUp handler.
+	page.Keyboard.MustType(input.ArrowUp)
 	page.Timeout(2 * time.Second).MustElement(".message--active")
 }
 
-// pressNavKey dispatches a keydown event on the document while in navigation mode.
+// pressNavKey sends a real keyboard event while in navigation mode.
+// key must be a single ASCII character (e.g. "e", "d").
 func pressNavKey(page *rod.Page, key string) {
-	page.MustEval(fmt.Sprintf(`() =>
-		document.dispatchEvent(new KeyboardEvent('keydown', {key: %q, bubbles: true, cancelable: true}))
-	`, key))
+	page.Keyboard.MustType(input.Key(key[0]))
 }
 
 // TestKeyboard_E_Ignored_OtherUserMessage verifies that pressing 'e' during
@@ -543,13 +544,12 @@ func TestSW_PushEvent(t *testing.T) {
 
 const themeRoom = "room-theme"
 
-// clickThemeToggle dispatches a click on the [data-theme-toggle] button via JS
-// so we don't need to open the profile popover that contains it.
+// clickThemeToggle opens the profile popover then clicks the theme-toggle
+// button using real pointer events, so the test fails if an overlay is
+// blocking pointer input.
 func clickThemeToggle(page *rod.Page) {
-	page.MustEval(`() =>
-		document.querySelector('[data-theme-toggle]')
-			.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
-	`)
+	page.MustElement("#profile-btn").MustClick()
+	page.MustElement("[data-theme-toggle]").MustClick()
 }
 
 // TestThemeToggle_DarkOS verifies that on a dark-mode OS the first click on the
@@ -938,11 +938,8 @@ func TestReaction_EmojiGoesToReaction(t *testing.T) {
 	// Wait for SSE connection.
 	time.Sleep(300 * time.Millisecond)
 
-	// Open the reaction picker for the message.
-	page.MustEval(fmt.Sprintf(`() => {
-		const btn = document.querySelector('[data-reaction-add="%s"]');
-		if (btn) btn.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-	}`, msg.ID))
+	// Open the reaction picker for the message via a real pointer click.
+	page.MustElement(fmt.Sprintf(`[data-reaction-add="%s"]`, msg.ID)).MustClick()
 
 	pickerHidden := page.MustEval(`() => document.getElementById('emoji-picker-container')?.hidden`).Bool()
 	require.False(t, pickerHidden, "picker must be open before selecting emoji")
@@ -988,12 +985,11 @@ func TestReaction_PickerOpensOnClick(t *testing.T) {
 	page := authPage(t, b, ts, alice, reactRoom)
 	page.Timeout(5 * time.Second).MustElement("#msg-" + msg.ID)
 
-	// Dispatch a click on the add-reaction button via JS so it fires regardless
-	// of hover state (the button has opacity:0 until hovered).
-	page.MustEval(fmt.Sprintf(`() => {
-		const btn = document.querySelector('[data-reaction-add="%s"]');
-		if (btn) btn.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-	}`, msg.ID))
+	// Real pointer click on the add-reaction button. Rod moves the mouse to the
+	// element before clicking, which triggers the hover CSS that makes the
+	// opacity:0 button interactive.
+	reactionAddBtn := page.MustElement(fmt.Sprintf(`[data-reaction-add="%s"]`, msg.ID))
+	reactionAddBtn.MustClick()
 
 	// The emoji picker container must become visible.
 	hidden := page.Timeout(2 * time.Second).MustEval(`() => {
@@ -1003,10 +999,7 @@ func TestReaction_PickerOpensOnClick(t *testing.T) {
 	assert.False(t, hidden, "emoji picker should be visible after clicking the add-reaction button")
 
 	// Clicking the same button again must close the picker (toggle behaviour).
-	page.MustEval(fmt.Sprintf(`() => {
-		const btn = document.querySelector('[data-reaction-add="%s"]');
-		if (btn) btn.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-	}`, msg.ID))
+	reactionAddBtn.MustClick()
 
 	hiddenAfterToggle := page.MustEval(`() => {
 		const c = document.getElementById('emoji-picker-container');

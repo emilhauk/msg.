@@ -104,6 +104,29 @@
   document.addEventListener('htmx:afterSettle', formatMessageTimes);
 })();
 
+// Lightbox for image attachments.
+(() => {
+  const lightbox = document.getElementById('lightbox');
+  if (!lightbox) return;
+  const lightboxImg = lightbox.querySelector('.lightbox__img');
+  const lightboxClose = lightbox.querySelector('.lightbox__close');
+
+  document.addEventListener('click', (e) => {
+    const img = e.target.closest('.message__media-img');
+    if (!img) return;
+    e.preventDefault();
+    lightboxImg.src = img.src;
+    lightboxImg.alt = img.alt;
+    lightbox.showModal();
+  });
+
+  lightboxClose.addEventListener('click', () => lightbox.close());
+
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightbox) lightbox.close();
+  });
+})();
+
 // Click-to-copy for code blocks.
 (() => {
   document.addEventListener('click', (e) => {

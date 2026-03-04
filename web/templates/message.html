@@ -54,9 +54,7 @@
     <div class="message__attachments">
       {{range .Attachments}}
         {{if isImageType .ContentType}}
-        <a href="{{.URL}}" target="_blank" rel="noopener noreferrer">
           <img class="message__media-img" src="{{.URL}}" alt="{{.Filename}}" loading="lazy">
-        </a>
         {{else if isVideoType .ContentType}}
         <video class="message__media-video" controls preload="metadata">
           <source src="{{.URL}}" type="{{.ContentType}}">
