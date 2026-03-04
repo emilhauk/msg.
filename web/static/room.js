@@ -1804,3 +1804,33 @@ function applyMyReactions(barEl, msgId) {
     { capture: true },
   );
 })();
+
+// ---- Unread message count (title prefix + favicon badge) ----
+(() => {
+  let unreadCount = 0;
+  const originalTitle = document.title;
+  const faviconEl = document.querySelector('link[rel="icon"]');
+  const FAVICON_NORMAL = faviconEl ? faviconEl.href : null;
+  const FAVICON_BADGE = '/static/favicon-badge.svg';
+
+  function setUnread(n) {
+    unreadCount = n;
+    document.title = n > 0 ? `[${n}] ${originalTitle}` : originalTitle;
+    if (faviconEl) faviconEl.href = n > 0 ? FAVICON_BADGE : FAVICON_NORMAL;
+  }
+
+  // Increment when a message arrives while the tab is hidden and it's not from the current user.
+  document.body.addEventListener('htmx:sseMessage', () => {
+    if (!document.hidden) return;
+    const target = document.getElementById('sse-message-target');
+    const msg = target?.previousElementSibling;
+    if (msg && msg.dataset.authorId !== __currentUserID) {
+      setUnread(unreadCount + 1);
+    }
+  });
+
+  // Reset when the tab becomes visible.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) setUnread(0);
+  });
+})();
