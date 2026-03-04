@@ -932,7 +932,20 @@ img { display: block; max-width: 100%; }
   z-index: 999;
   box-shadow: var(--shadow-md);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+}
+
+emoji-picker {
+  --background:                var(--color-bg);
+  --border-color:              var(--color-border);
+  --border-radius:             var(--radius-lg);
+  --button-hover-background:   var(--color-bg-subtle);
+  --button-active-background:  var(--color-bg-sidebar);
+  --indicator-color:           var(--color-primary);
+  --input-border-color:        var(--color-border);
+  --input-font-color:          var(--color-text);
+  --input-placeholder-color:   var(--color-text-muted);
+  --outline-color:             var(--color-primary);
+  --category-font-color:       var(--color-text-muted);
 }
 
 /* ============================================================
