@@ -11,7 +11,7 @@ test-go:
 # Browser E2E tests using go-rod + headless Chromium.
 # Requires Chromium to be installed (rod auto-downloads if not found).
 test-e2e:
-	go test ./internal/browser/... -v -timeout 120s
+	go test ./internal/browser/... -v -timeout 120s -parallel 4
 
 # JS lint via Biome.
 lint:

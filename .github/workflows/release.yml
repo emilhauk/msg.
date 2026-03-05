@@ -52,7 +52,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run E2E tests
-        run: go test ./internal/browser/... -v -timeout 120s
+        run: go test ./internal/browser/... -v -timeout 120s -parallel 4
 
   build-and-push:
     runs-on: ubuntu-latest
