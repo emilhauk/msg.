@@ -496,8 +496,8 @@ func (h *MessagesHandler) fetchAndPublishUnfurl(rawURL, msgID, roomID string) {
 		return
 	}
 
-	// Call Microlink.
-	unfurl, err := fetchMicrolink(ctx, normalised)
+	// Fetch link preview (YouTube oEmbed first, then Microlink).
+	unfurl, err := fetchUnfurl(ctx, normalised)
 	if err != nil || unfurl == nil {
 		_ = h.Redis.SetUnfurl(ctx, normalised, nil) // cache failure
 		return

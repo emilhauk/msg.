@@ -61,6 +61,12 @@ type Unfurl struct {
 	Description string `json:"description"`
 	Image       string `json:"image"`
 	URL         string `json:"url"`
+	// IsVideo is true for video links (e.g. YouTube). The template renders a
+	// 16:9 thumbnail card with a play icon affordance instead of a small square image.
+	IsVideo bool `json:"is_video,omitempty"`
+	// IsShorts is true for YouTube Shorts URLs (/shorts/VIDEO_ID). Implies IsVideo=true.
+	// The template renders a narrow 9:16 card instead of the default 16:9 layout.
+	IsShorts bool `json:"is_shorts,omitempty"`
 }
 
 // MessageView wraps a Message with the ID of the currently authenticated user

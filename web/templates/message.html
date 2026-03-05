@@ -65,13 +65,32 @@
     {{end}}
     <div id="preview-{{.ID}}">
     {{if .Unfurl}}
-      <div class="unfurl">
-        {{if .Unfurl.Image}}<img class="unfurl__image" src="{{.Unfurl.Image}}" alt="" loading="lazy">{{end}}
+      {{if .Unfurl.IsVideo}}
+      <div class="unfurl unfurl--video{{if .Unfurl.IsShorts}} unfurl--shorts{{end}}">
+        <a class="unfurl__player" href="{{.Unfurl.URL}}" target="_blank" rel="noopener noreferrer" aria-label="{{.Unfurl.Title}}">
+          {{if .Unfurl.Image}}<img class="unfurl__thumb" src="{{.Unfurl.Image}}" alt="{{.Unfurl.Title}}" loading="lazy">{{end}}
+          <span class="unfurl__play-icon" aria-hidden="true">
+            <svg viewBox="0 0 68 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="68" height="48" rx="14" fill="#ff0000" fill-opacity=".9"/>
+              <path d="M45 24L27 34V14l18 10z" fill="white"/>
+            </svg>
+          </span>
+        </a>
         <div class="unfurl__body">
           <a class="unfurl__title" href="{{.Unfurl.URL}}" target="_blank" rel="noopener noreferrer">{{.Unfurl.Title}}</a>
           {{if .Unfurl.Description}}<p class="unfurl__desc">{{.Unfurl.Description}}</p>{{end}}
         </div>
       </div>
+      {{else}}
+      <div class="unfurl">
+        {{if .Unfurl.Image}}<img class="unfurl__image" src="{{.Unfurl.Image}}" alt="" loading="lazy">{{end}}
+        <div class="unfurl__body">
+          <a class="unfurl__title" href="{{.Unfurl.URL}}" target="_blank" rel="noopener noreferrer">{{.Unfurl.Title}}</a>
+          {{if .Unfurl.Description}}<p class="unfurl__desc">{{.Unfurl.Description}}</p>{{end}}
+          <span class="unfurl__domain">{{.Unfurl.URL}}</span>
+        </div>
+      </div>
+      {{end}}
     {{end}}
     </div>
     {{template "reactions.html" (reactionData .ID .RoomID .Reactions)}}
