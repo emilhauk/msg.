@@ -86,7 +86,7 @@ document.body.addEventListener('htmx:sendError', (e) => {
 
   // Focus the compose textarea so the user can start typing immediately.
   const initTa = document.querySelector('.message-form__textarea');
-  if (initTa) initTa.focus();
+  if (initTa && window.matchMedia('(hover: hover) and (pointer: fine)').matches) initTa.focus();
 
   // ResizeObserver on the inner content wrapper fires whenever images,
   // videos, or unfurl cards load and expand the layout — which is invisible
