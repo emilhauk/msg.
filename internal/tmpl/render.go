@@ -47,6 +47,97 @@ func linkify(s string) template.HTML {
 	return template.HTML(b.String())
 }
 
+// inlineRe matches inline markdown patterns and URLs in priority order.
+// Bold (**text**) must come before italic (*text*) to avoid ** consuming just one *.
+// Groups: (1) **bold**, (2) URL, (3) *italic*
+var inlineRe = regexp.MustCompile(
+	`\*\*(.+?)\*\*` +
+		`|(https?://[^\s<>"]+)` +
+		`|\*(\S(?:.+?\S)?)\*`,
+)
+
+// renderInline applies bold (**text**), italic (*text*), and URL linkification
+// to s, HTML-escaping all plain-text segments. The result is safe HTML.
+func renderInline(s string) template.HTML {
+	var b strings.Builder
+	last := 0
+	for _, loc := range inlineRe.FindAllStringSubmatchIndex(s, -1) {
+		matchStart, matchEnd := loc[0], loc[1]
+		b.WriteString(template.HTMLEscapeString(s[last:matchStart]))
+		switch {
+		case loc[2] >= 0: // **bold**
+			b.WriteString("<strong>")
+			b.WriteString(template.HTMLEscapeString(s[loc[2]:loc[3]]))
+			b.WriteString("</strong>")
+		case loc[4] >= 0: // URL
+			raw := s[loc[4]:loc[5]]
+			if u, err := url.ParseRequestURI(raw); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+				b.WriteString(`<a href="`)
+				b.WriteString(template.HTMLEscapeString(raw))
+				b.WriteString(`" target="_blank" rel="noopener noreferrer">`)
+				b.WriteString(template.HTMLEscapeString(raw))
+				b.WriteString(`</a>`)
+			} else {
+				b.WriteString(template.HTMLEscapeString(raw))
+			}
+		case loc[6] >= 0: // *italic*
+			b.WriteString("<em>")
+			b.WriteString(template.HTMLEscapeString(s[loc[6]:loc[7]]))
+			b.WriteString("</em>")
+		}
+		last = matchEnd
+	}
+	b.WriteString(template.HTMLEscapeString(s[last:]))
+	return template.HTML(b.String())
+}
+
+// ulItemRe matches lines that are unordered list items (- or * followed by space).
+var ulItemRe = regexp.MustCompile(`^[*-] `)
+
+// olItemRe matches lines that are ordered list items (digits followed by ". ").
+var olItemRe = regexp.MustCompile(`^\d+\. `)
+
+// renderMarkdownBlock processes a plain-text segment applying block-level (lists)
+// and inline (bold, italic, links) markdown formatting.
+func renderMarkdownBlock(s string) template.HTML {
+	lines := strings.Split(s, "\n")
+	var out strings.Builder
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if ulItemRe.MatchString(line) {
+			out.WriteString("<ul>")
+			for i < len(lines) && ulItemRe.MatchString(lines[i]) {
+				out.WriteString("<li>")
+				out.WriteString(string(renderInline(lines[i][2:])))
+				out.WriteString("</li>")
+				i++
+			}
+			out.WriteString("</ul>")
+			continue
+		}
+		if olItemRe.MatchString(line) {
+			out.WriteString("<ol>")
+			for i < len(lines) && olItemRe.MatchString(lines[i]) {
+				m := olItemRe.FindStringIndex(lines[i])
+				out.WriteString("<li>")
+				out.WriteString(string(renderInline(lines[i][m[1]:])))
+				out.WriteString("</li>")
+				i++
+			}
+			out.WriteString("</ol>")
+			continue
+		}
+		// Plain line: emit a newline separator before all but the first item.
+		if out.Len() > 0 {
+			out.WriteString("\n")
+		}
+		out.WriteString(string(renderInline(line)))
+		i++
+	}
+	return template.HTML(out.String())
+}
+
 // codeFenceRe matches fenced code blocks: ```lang\ncode\n``` (lang is optional).
 var codeFenceRe = regexp.MustCompile("(?s)```([a-zA-Z0-9+#-]*)\\n(.*?)```")
 
@@ -97,7 +188,7 @@ func highlightCode(lang, code string) template.HTML {
 
 // renderText transforms raw message text into safe HTML. It handles:
 //   - Fenced code blocks (```lang\ncode\n```) → syntax-highlighted <pre> with copy button
-//   - Plain text segments → linkified, HTML-escaped
+//   - Plain text segments → markdown-formatted (bold, italic, lists) and linkified
 func renderText(s string) template.HTML {
 	var out strings.Builder
 
@@ -110,8 +201,8 @@ func renderText(s string) template.HTML {
 		lang := s[loc[2]:loc[3]]
 		code := s[loc[4]:loc[5]]
 
-		// Emit plain text before this code block.
-		out.WriteString(string(linkify(s[last:matchStart])))
+		// Emit markdown-formatted text before this code block.
+		out.WriteString(string(renderMarkdownBlock(s[last:matchStart])))
 
 		// Highlighted code.
 		highlighted := highlightCode(lang, code)
@@ -138,8 +229,8 @@ func renderText(s string) template.HTML {
 		last = matchEnd
 	}
 
-	// Remaining plain text.
-	out.WriteString(string(linkify(s[last:])))
+	// Remaining text.
+	out.WriteString(string(renderMarkdownBlock(s[last:])))
 
 	return template.HTML(out.String())
 }
