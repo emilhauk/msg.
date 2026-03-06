@@ -232,6 +232,9 @@ func main() {
 	mux.Handle("POST /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleSetMute)))
 	mux.Handle("DELETE /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleClearMute)))
 
+	// Avatar proxy — unauthenticated; serves profile images with a stable URL and cache headers.
+	mux.Handle("GET /avatar/{userID}", &handler.AvatarHandler{Redis: redis})
+
 	// Media upload — only available when S3 is configured.
 	if s3Client != nil {
 		uploadHandler := &handler.UploadHandler{S3: s3Client}

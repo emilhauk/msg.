@@ -1,8 +1,8 @@
 {{define "message.html"}}
 <article class="message" id="msg-{{.ID}}" data-author-id="{{.UserID}}">
   <div class="message__avatar">
-    {{if and .User .User.AvatarURL}}
-    <img class="avatar" src="{{.User.AvatarURL}}" alt="{{.User.Name}}" width="36" height="36" loading="lazy">
+    {{if .User}}
+    <img class="avatar" src="/avatar/{{.User.ID}}" alt="{{.User.Name}}" width="36" height="36" loading="lazy">
     {{else}}
     <div class="avatar avatar--placeholder">{{if .User}}{{slice .User.Name 0 1}}{{else}}?{{end}}</div>
     {{end}}
