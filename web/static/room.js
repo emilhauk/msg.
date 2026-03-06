@@ -1899,3 +1899,44 @@ function applyMyReactions(barEl, msgId) {
     if (!document.hidden) setUnread(0);
   });
 })();
+
+// Long-press on reaction pills (touch devices) — show reactor tooltip.
+(() => {
+  const LONG_PRESS_MS = 400;
+  let timer = null;
+  let activePill = null;
+
+  function dismiss() {
+    if (activePill) {
+      const tip = activePill.querySelector('.reaction-tooltip');
+      if (tip) tip.classList.remove('reaction-tooltip--visible');
+      activePill = null;
+    }
+  }
+
+  document.addEventListener('touchstart', (e) => {
+    const pill = e.target.closest('.reaction-pill');
+    if (!pill) { dismiss(); return; }
+
+    timer = setTimeout(() => {
+      timer = null;
+      dismiss();
+      activePill = pill;
+      const tip = pill.querySelector('.reaction-tooltip');
+      if (tip) tip.classList.add('reaction-tooltip--visible');
+    }, LONG_PRESS_MS);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    } else if (activePill && e.target.closest('.reaction-pill') === activePill) {
+      e.preventDefault();
+    }
+  });
+})();

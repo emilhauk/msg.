@@ -137,6 +137,36 @@ func (c *Client) GetUser(ctx context.Context, id string) (*model.User, error) {
 	}, nil
 }
 
+// GetUsers retrieves multiple users by UUID in a single pipeline. Missing or
+// empty results are silently skipped. The returned map may have fewer entries
+// than ids when some are not found.
+func (c *Client) GetUsers(ctx context.Context, ids []string) (map[string]*model.User, error) {
+	if len(ids) == 0 {
+		return map[string]*model.User{}, nil
+	}
+	pipe := c.rdb.Pipeline()
+	cmds := make([]*goredis.MapStringStringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.HGetAll(ctx, "users:"+id)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != goredis.Nil {
+		return nil, fmt.Errorf("redis: get users pipeline: %w", err)
+	}
+	result := make(map[string]*model.User, len(ids))
+	for i, cmd := range cmds {
+		vals, err := cmd.Result()
+		if err != nil || len(vals) == 0 {
+			continue
+		}
+		result[ids[i]] = &model.User{
+			ID:        vals["id"],
+			Name:      vals["name"],
+			AvatarURL: vals["avatar_url"],
+		}
+	}
+	return result, nil
+}
+
 // GetUserByIdentity looks up the canonical user UUID for a given OAuth identity
 // (provider + provider-scoped user ID), then retrieves the full user record.
 // Returns nil without error when the identity has not been registered before.
@@ -439,13 +469,56 @@ func (c *Client) GetReactions(ctx context.Context, msgID, userID string) ([]mode
 		}
 	}
 
+	// Fetch reactor user IDs per emoji.
+	allUserFields, err := c.rdb.HGetAll(ctx, usersKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: get reaction users: %w", err)
+	}
+	emojiReactors := make(map[string][]string) // emoji → []userID
+	uniqueIDs := make(map[string]struct{})
+	for field := range allUserFields {
+		sep := len(field) - 36 - 1 // emoji\x00uuid (uuid is 36 chars)
+		if sep < 0 {
+			continue
+		}
+		// field format: "{emoji}\x00{userID}"
+		nulIdx := -1
+		for i := len(field) - 1; i >= 0; i-- {
+			if field[i] == 0 {
+				nulIdx = i
+				break
+			}
+		}
+		if nulIdx < 0 {
+			continue
+		}
+		emoji, uid := field[:nulIdx], field[nulIdx+1:]
+		emojiReactors[emoji] = append(emojiReactors[emoji], uid)
+		uniqueIDs[uid] = struct{}{}
+	}
+	allUniqueIDs := make([]string, 0, len(uniqueIDs))
+	for uid := range uniqueIDs {
+		allUniqueIDs = append(allUniqueIDs, uid)
+	}
+	users, err := c.GetUsers(ctx, allUniqueIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	reactions := make([]model.Reaction, 0, len(counts))
 	for emoji, count := range counts {
 		if count > 0 {
+			reactors := make([]model.User, 0, len(emojiReactors[emoji]))
+			for _, uid := range emojiReactors[emoji] {
+				if u, ok := users[uid]; ok {
+					reactors = append(reactors, *u)
+				}
+			}
 			reactions = append(reactions, model.Reaction{
 				Emoji:       emoji,
 				Count:       count,
 				ReactedByMe: reacted[emoji],
+				Reactors:    reactors,
 			})
 		}
 	}

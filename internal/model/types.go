@@ -53,6 +53,7 @@ type Reaction struct {
 	Emoji       string
 	Count       int
 	ReactedByMe bool
+	Reactors    []User
 }
 
 // Unfurl holds a cached link preview.

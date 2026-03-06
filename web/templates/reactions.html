@@ -10,6 +10,16 @@
           type="button">
     <span class="reaction-pill__emoji">{{.Emoji}}</span>
     <span class="reaction-pill__count">{{.Count}}</span>
+    {{if .Reactors}}
+    <div class="reaction-tooltip" role="tooltip">
+      {{range .Reactors}}
+      <div class="reaction-tooltip__user">
+        <img src="{{.AvatarURL}}" alt="" class="reaction-tooltip__avatar">
+        <span>{{.Name}}</span>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
   </button>
   {{end}}
   <div class="reaction-add-wrap">
