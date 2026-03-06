@@ -158,6 +158,52 @@ func TestReaction_EmojiGoesToReaction(t *testing.T) {
 	assert.Empty(t, textareaVal, "selected emoji must not be inserted into the compose textarea")
 }
 
+// TestReaction_TooltipConstrainedByMouseover verifies that hovering a reaction
+// pill near the right edge of the viewport triggers constrainTooltip, keeping
+// the tooltip within the viewport bounds.
+func TestReaction_TooltipConstrainedByMouseover(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping browser test in short mode")
+	}
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: reactRoom, Name: "Reaction Test Room"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+
+	msg := seedMessage(t, ts, alice, reactRoom, "tooltip boundary test")
+	postReaction(t, ts, alice, reactRoom, msg.ID, "👍")
+
+	b := newBrowser(t)
+	page := authPage(t, b, ts, alice, reactRoom)
+	page.Timeout(5 * time.Second).MustElement("#reactions-" + msg.ID + " .reaction-pill")
+
+	// Position a pill at the far right of the viewport (so its tooltip would
+	// overflow without the constraint), fire mouseover to invoke constrainTooltip,
+	// then verify the tooltip stays within viewport bounds.
+	withinBounds := page.MustEval(fmt.Sprintf(`() => {
+		const pill = document.querySelector('#reactions-%s .reaction-pill');
+		if (!pill) return false;
+
+		// Save and override styles to place the pill at the right edge.
+		const savedCSSText = pill.style.cssText;
+		pill.style.cssText += ';position:fixed;left:auto;right:5px;top:150px';
+
+		// Trigger the mouseover constraint handler.
+		pill.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+
+		const tip = pill.querySelector('.reaction-tooltip');
+		const r = tip ? tip.getBoundingClientRect() : null;
+
+		// Restore original styles.
+		pill.style.cssText = savedCSSText;
+
+		if (!r) return true;
+		return r.right <= window.innerWidth && r.left >= 0;
+	}`, msg.ID)).Bool()
+
+	assert.True(t, withinBounds, "tooltip should stay within viewport after mouseover constraint")
+}
+
 // TestReaction_PickerOpensOnClick verifies that clicking the add-reaction button
 // opens the emoji picker (makes it visible).
 func TestReaction_PickerOpensOnClick(t *testing.T) {

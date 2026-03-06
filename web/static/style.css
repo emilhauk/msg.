@@ -539,6 +539,7 @@ img { display: block; max-width: 100%; }
 .message-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 1rem 0;
 }
 

@@ -103,6 +103,32 @@ document.addEventListener(
   { capture: true },
 );
 
+// ---- Tooltip boundary constraint ----
+// Tooltips use left: 50%; transform: translateX(-50%) which can overflow the
+// viewport when a pill is near the left or right edge. This adjusts margin-left
+// to keep the tooltip within the viewport (8px inset on each side).
+function constrainTooltip(tip) {
+  tip.style.marginLeft = '';
+  const r = tip.getBoundingClientRect();
+  const pad = 8;
+  if (r.left < pad) {
+    tip.style.marginLeft = `${pad - r.left}px`;
+  } else if (r.right > window.innerWidth - pad) {
+    tip.style.marginLeft = `${window.innerWidth - pad - r.right}px`;
+  }
+}
+
+// Desktop hover: constrain tooltip position as soon as the mouse enters a pill
+// (before the CSS transition makes it visible).
+let constrainedPill = null;
+document.addEventListener('mouseover', (e) => {
+  const pill = e.target.closest('.reaction-pill');
+  if (!pill || pill === constrainedPill) return;
+  constrainedPill = pill;
+  const tip = pill.querySelector('.reaction-tooltip');
+  if (tip) constrainTooltip(tip);
+});
+
 // ---- Long-press on reaction pills (touch devices) — show reactor tooltip ----
 const LONG_PRESS_MS = 400;
 let timer = null;
@@ -111,7 +137,10 @@ let activePill = null;
 function dismiss() {
   if (activePill) {
     const tip = activePill.querySelector('.reaction-tooltip');
-    if (tip) tip.classList.remove('reaction-tooltip--visible');
+    if (tip) {
+      tip.classList.remove('reaction-tooltip--visible');
+      tip.style.marginLeft = '';
+    }
     activePill = null;
   }
 }
@@ -125,7 +154,10 @@ document.addEventListener('touchstart', (e) => {
     dismiss();
     activePill = pill;
     const tip = pill.querySelector('.reaction-tooltip');
-    if (tip) tip.classList.add('reaction-tooltip--visible');
+    if (tip) {
+      constrainTooltip(tip);
+      tip.classList.add('reaction-tooltip--visible');
+    }
   }, LONG_PRESS_MS);
 }, { passive: true });
 
