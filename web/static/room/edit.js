@@ -83,8 +83,9 @@ document.addEventListener('click', (e) => {
 });
 
 // Enter (without Shift) submits the edit form; Shift+Enter inserts newline.
+// Skip if autocomplete already handled the event (e.g. inserted an emoji).
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || e.shiftKey) return;
+  if (e.key !== 'Enter' || e.shiftKey || e.defaultPrevented) return;
   const ta = e.target;
   if (!ta || !ta.classList.contains('message-edit-form__textarea')) return;
   const form = ta.closest('.message-edit-form');
