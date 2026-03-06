@@ -16,11 +16,28 @@
   <link rel="stylesheet" href="/static/chroma.css?v={{.BuildVersion}}">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/htmx-ext-sse@2/sse.js" defer></script>
-  <script type="module">
-    import { Database } from 'https://cdn.jsdelivr.net/npm/emoji-picker-element/+esm';
-    // Expose Database so room-page module scripts can instantiate it without
-    // re-importing the same URL (which would be a separate module instance).
-    window.__EmojiDatabase = Database;
+  <script type="importmap">
+  {
+    "imports": {
+      "/static/app/theme.js":          "/static/app/theme.js?v={{.BuildVersion}}",
+      "/static/app/emoji-picker.js":   "/static/app/emoji-picker.js?v={{.BuildVersion}}",
+      "/static/app/timestamps.js":     "/static/app/timestamps.js?v={{.BuildVersion}}",
+      "/static/app/lightbox.js":       "/static/app/lightbox.js?v={{.BuildVersion}}",
+      "/static/app/copy-code.js":      "/static/app/copy-code.js?v={{.BuildVersion}}",
+      "/static/room/owner-controls.js": "/static/room/owner-controls.js?v={{.BuildVersion}}",
+      "/static/room/scroll.js":        "/static/room/scroll.js?v={{.BuildVersion}}",
+      "/static/room/emoticons.js":     "/static/room/emoticons.js?v={{.BuildVersion}}",
+      "/static/room/textarea.js":      "/static/room/textarea.js?v={{.BuildVersion}}",
+      "/static/room/upload.js":        "/static/room/upload.js?v={{.BuildVersion}}",
+      "/static/room/autocomplete.js":  "/static/room/autocomplete.js?v={{.BuildVersion}}",
+      "/static/room/reactions.js":     "/static/room/reactions.js?v={{.BuildVersion}}",
+      "/static/room/sse.js":           "/static/room/sse.js?v={{.BuildVersion}}",
+      "/static/room/edit.js":          "/static/room/edit.js?v={{.BuildVersion}}",
+      "/static/room/keyboard.js":      "/static/room/keyboard.js?v={{.BuildVersion}}",
+      "/static/room/notifications.js": "/static/room/notifications.js?v={{.BuildVersion}}",
+      "/static/room/heartbeat.js":     "/static/room/heartbeat.js?v={{.BuildVersion}}"
+    }
+  }
   </script>
 </head>
 <body>
@@ -58,7 +75,7 @@
     <emoji-picker></emoji-picker>
   </div>
 
-  <script src="/static/app.js?v={{.BuildVersion}}"></script>
+  <script type="module" src="/static/app.js?v={{.BuildVersion}}"></script>
 </body>
 </html>
 {{end}}

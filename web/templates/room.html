@@ -207,43 +207,5 @@
   var CHIME_URL = '/static/chime.mp3?v={{$.BuildVersion}}';
 
 </script>
-<script src="/static/room.js?v={{$.BuildVersion}}"></script>
-<script>
-(function () {
-  var activeURL = '/rooms/{{.Data.Room.ID}}/active';
-  var inactiveURL = '/rooms/{{.Data.Room.ID}}/inactive';
-  var heartbeatTimer = null;
-
-  function ping() {
-    fetch(activeURL, { method: 'POST' }).catch(function () {});
-  }
-
-  function leave() {
-    navigator.sendBeacon(inactiveURL);
-  }
-
-  function startHeartbeat() {
-    ping();
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = setInterval(ping, 60 * 1000);
-  }
-
-  function stopHeartbeat() {
-    clearInterval(heartbeatTimer);
-    leave();
-  }
-
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') {
-      startHeartbeat();
-    } else {
-      stopHeartbeat();
-    }
-  });
-
-  if (document.visibilityState === 'visible') {
-    startHeartbeat();
-  }
-})();
-</script>
+<script type="module" src="/static/room.js?v={{$.BuildVersion}}"></script>
 {{end}}
