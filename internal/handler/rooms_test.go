@@ -210,16 +210,24 @@ func TestHandlePanel_Forbidden(t *testing.T) {
 // Add access
 // ---------------------------------------------------------------------------
 
-func TestHandleAddAccess_Success(t *testing.T) {
+func TestHandleAddAccess_ValidCandidate(t *testing.T) {
 	ts := testutil.NewTestServer(t)
-	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	// Two rooms: room1 and room2.
+	ts.SeedRoom(t, model.Room{ID: "room1", Name: "Room 1"})
+	ts.SeedRoom(t, model.Room{ID: "room2", Name: "Room 2"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
-	ts.GrantAccess(t, testRoom, alice.ID)
+	// Alice and Bob both have access to room1.
+	ts.GrantAccess(t, "room1", alice.ID)
+	ts.GrantAccess(t, "room1", bob.ID)
+	// Alice has access to room2, but Bob does not.
+	ts.GrantAccess(t, "room2", alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
+	// Alice adds Bob to room2 — Bob is a valid candidate because they share room1.
 	client := testutil.NoRedirectClient()
 	form := url.Values{"user_id": {bob.ID}}
-	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/"+testRoom+"/access", strings.NewReader(form.Encode()))
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/room2/access", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
 
@@ -227,9 +235,34 @@ func TestHandleAddAccess_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
 
-	ok, err := ts.Redis.IsRoomAccessible(context.Background(), testRoom, bob.ID)
+	ok, err := ts.Redis.IsRoomAccessible(context.Background(), "room2", bob.ID)
 	require.NoError(t, err)
-	assert.True(t, ok, "bob should have access after being invited")
+	assert.True(t, ok, "bob should have access to room2 after being invited")
+}
+
+func TestHandleAddAccess_InvalidCandidate(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	charlie := model.User{ID: "user-charlie", Name: "Charlie", Email: "charlie@example.com"}
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), charlie))
+	// Alice has access to the room. Charlie exists but shares NO rooms with Alice.
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	form := url.Values{"user_id": {charlie.ID}}
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/"+testRoom+"/access", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	// Verify Charlie does NOT have access.
+	ok, err := ts.Redis.IsRoomAccessible(context.Background(), testRoom, charlie.ID)
+	require.NoError(t, err)
+	assert.False(t, ok, "charlie should not have access — not a valid candidate")
 }
 
 func TestHandleAddAccess_UserNotFound(t *testing.T) {
@@ -245,7 +278,33 @@ func TestHandleAddAccess_UserNotFound(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestHandleAddAccess_AlreadyMember(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: "room1", Name: "Room 1"})
+	ts.SeedRoom(t, model.Room{ID: "room2", Name: "Room 2"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	// Alice and Bob share room1 (so Bob is a valid candidate).
+	ts.GrantAccess(t, "room1", alice.ID)
+	ts.GrantAccess(t, "room1", bob.ID)
+	// Both already have access to room2.
+	ts.GrantAccess(t, "room2", alice.ID)
+	ts.GrantAccess(t, "room2", bob.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	// Alice tries to add Bob to room2 — Bob already has access → 409.
+	client := testutil.NoRedirectClient()
+	form := url.Values{"user_id": {bob.ID}}
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/room2/access", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
 
 func TestHandleAddAccess_Forbidden(t *testing.T) {

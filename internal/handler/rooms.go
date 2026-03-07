@@ -204,11 +204,34 @@ func (h *RoomsHandler) HandleAddAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user_id is required", http.StatusBadRequest)
 		return
 	}
-	target, err := h.Redis.GetUser(r.Context(), inviteeID)
-	if err != nil || target == nil {
-		http.Error(w, "user not found", http.StatusBadRequest)
+
+	alreadyMember, err := h.Redis.IsRoomAccessible(r.Context(), roomID, inviteeID)
+	if err != nil {
+		http.Error(w, "failed to check membership", http.StatusInternalServerError)
 		return
 	}
+	if alreadyMember {
+		http.Error(w, "user already has access", http.StatusConflict)
+		return
+	}
+
+	candidates, err := h.Redis.GetInviteCandidates(r.Context(), roomID, user.ID)
+	if err != nil {
+		http.Error(w, "failed to check candidates", http.StatusInternalServerError)
+		return
+	}
+	isCandidate := false
+	for _, c := range candidates {
+		if c.ID == inviteeID {
+			isCandidate = true
+			break
+		}
+	}
+	if !isCandidate {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	if err := h.Redis.AddRoomAccess(r.Context(), roomID, inviteeID); err != nil {
 		http.Error(w, "failed to add member", http.StatusInternalServerError)
 		return
