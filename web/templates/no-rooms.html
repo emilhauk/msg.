@@ -1,0 +1,22 @@
+{{define "no-rooms.html"}}
+{{template "base.html" .}}
+{{end}}
+
+{{define "title"}}No rooms — msg.{{end}}
+
+{{define "content"}}
+<div class="no-rooms-page">
+  <h1 class="no-rooms-page__title">You're not in any rooms yet</h1>
+  <p class="no-rooms-page__text">Create a new room or ask a team member to invite you.</p>
+  <form class="no-rooms-page__form" method="post" action="/rooms">
+    <input
+      class="no-rooms-page__input"
+      type="text"
+      name="name"
+      placeholder="Room name"
+      required
+      autofocus>
+    <button class="btn btn--primary" type="submit">Create room</button>
+  </form>
+</div>
+{{end}}

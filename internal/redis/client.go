@@ -2,7 +2,9 @@ package redis
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,8 +21,13 @@ import (
 const (
 	sessionTTL = 90 * 24 * time.Hour
 	messageTTL = 30 * 24 * time.Hour
+	inviteTTL  = 30 * 24 * time.Hour
 	unfurlTTL  = 24 * time.Hour
 	unfurlFail = 15 * time.Minute
+
+	// activeThreshold is how recently a user must have been active in a room
+	// for them to be considered "active" in the room panel.
+	activeThreshold = 5 * time.Minute
 
 	redisRetryAttempts = 5
 	redisRetryDelay    = 2 * time.Second
@@ -241,14 +248,56 @@ func (c *Client) LinkIdentity(ctx context.Context, userID, provider, providerUse
 // Rooms
 // ---------------------------------------------------------------------------
 
-// SeedRoom creates the room if it does not already exist.
+// SeedRoom creates the room if it does not already exist. If the room already
+// has an access list it is left unchanged; otherwise all current room members
+// (from the members ZSet) are migrated into the access Set so that existing
+// deployments keep working after access control is introduced.
 func (c *Client) SeedRoom(ctx context.Context, room model.Room) error {
 	ts := float64(time.Now().Unix())
 	pipe := c.rdb.Pipeline()
 	pipe.ZAddNX(ctx, "rooms", goredis.Z{Score: ts, Member: room.ID})
 	pipe.HSet(ctx, "rooms:"+room.ID, "id", room.ID, "name", room.Name)
-	_, err := pipe.Exec(ctx)
-	return err
+	if _, err := pipe.Exec(ctx); err != nil {
+		return err
+	}
+	// Migrate existing members to the access set (runs once: skipped when
+	// the access set is already populated).
+	accessKey := "rooms:" + room.ID + ":access"
+	n, err := c.rdb.SCard(ctx, accessKey).Result()
+	if err != nil || n > 0 {
+		return err
+	}
+	memberIDs, err := c.rdb.ZRange(ctx, "rooms:"+room.ID+":members", 0, -1).Result()
+	if err != nil || len(memberIDs) == 0 {
+		return err
+	}
+	members := make([]any, len(memberIDs))
+	for i, id := range memberIDs {
+		members[i] = id
+	}
+	return c.rdb.SAdd(ctx, accessKey, members...).Err()
+}
+
+// CreateRoom creates a new private room owned by createdByUserID. The creator
+// is automatically added to the room's access list. The room ID is a random
+// 8-character hex string. Returns the created Room.
+func (c *Client) CreateRoom(ctx context.Context, name, createdByUserID string) (model.Room, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return model.Room{}, fmt.Errorf("redis: create room: generate id: %w", err)
+	}
+	id := hex.EncodeToString(b)
+	ts := float64(time.Now().Unix())
+	room := model.Room{ID: id, Name: name}
+
+	pipe := c.rdb.Pipeline()
+	pipe.ZAdd(ctx, "rooms", goredis.Z{Score: ts, Member: id})
+	pipe.HSet(ctx, "rooms:"+id, "id", id, "name", name, "created_by", createdByUserID)
+	pipe.SAdd(ctx, "rooms:"+id+":access", createdByUserID)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return model.Room{}, fmt.Errorf("redis: create room: %w", err)
+	}
+	return room, nil
 }
 
 // GetRoom retrieves a room by ID.
@@ -258,6 +307,166 @@ func (c *Client) GetRoom(ctx context.Context, id string) (*model.Room, error) {
 		return nil, err
 	}
 	return &model.Room{ID: vals["id"], Name: vals["name"]}, nil
+}
+
+// IsRoomAccessible reports whether userID is allowed to access roomID.
+// Access is granted when the user is in the room's access set.
+func (c *Client) IsRoomAccessible(ctx context.Context, roomID, userID string) (bool, error) {
+	return c.rdb.SIsMember(ctx, "rooms:"+roomID+":access", userID).Result()
+}
+
+// AddRoomAccess grants userID access to roomID.
+func (c *Client) AddRoomAccess(ctx context.Context, roomID, userID string) error {
+	return c.rdb.SAdd(ctx, "rooms:"+roomID+":access", userID).Err()
+}
+
+// GetRoomAccessList returns all user IDs with access to the room.
+func (c *Client) GetRoomAccessList(ctx context.Context, roomID string) ([]string, error) {
+	return c.rdb.SMembers(ctx, "rooms:"+roomID+":access").Result()
+}
+
+// GetAccessibleRooms returns all rooms the given user has access to, ordered
+// by creation time (newest first).
+func (c *Client) GetAccessibleRooms(ctx context.Context, userID string) ([]*model.Room, error) {
+	ids, err := c.rdb.ZRevRange(ctx, "rooms", 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+	var rooms []*model.Room
+	for _, id := range ids {
+		ok, err := c.rdb.SIsMember(ctx, "rooms:"+id+":access", userID).Result()
+		if err != nil || !ok {
+			continue
+		}
+		room, err := c.GetRoom(ctx, id)
+		if err != nil || room == nil {
+			continue
+		}
+		rooms = append(rooms, room)
+	}
+	return rooms, nil
+}
+
+// GetInviteCandidates returns users who appear in other rooms accessible to
+// userID but are not yet in roomID's access list. These are the users that
+// can be invited to the room by @mentioning them in the panel.
+func (c *Client) GetInviteCandidates(ctx context.Context, roomID, userID string) ([]*model.User, error) {
+	accessible, err := c.GetAccessibleRooms(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	// Build set of users already in this room.
+	currentAccess, err := c.GetRoomAccessList(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	current := make(map[string]bool, len(currentAccess)+1)
+	for _, id := range currentAccess {
+		current[id] = true
+	}
+	current[userID] = true // exclude self
+
+	seen := make(map[string]bool)
+	var candidateIDs []string
+	for _, room := range accessible {
+		if room.ID == roomID {
+			continue
+		}
+		members, err := c.GetRoomAccessList(ctx, room.ID)
+		if err != nil {
+			continue
+		}
+		for _, id := range members {
+			if !current[id] && !seen[id] {
+				seen[id] = true
+				candidateIDs = append(candidateIDs, id)
+			}
+		}
+	}
+	if len(candidateIDs) == 0 {
+		return nil, nil
+	}
+	users, err := c.GetUsers(ctx, candidateIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*model.User, 0, len(users))
+	for _, id := range candidateIDs {
+		if u, ok := users[id]; ok {
+			result = append(result, u)
+		}
+	}
+	return result, nil
+}
+
+// CreateInviteToken creates a single-use invite token for roomID. The token
+// is a 16-byte random hex string and expires after inviteTTL (30 days).
+func (c *Client) CreateInviteToken(ctx context.Context, roomID, createdByUserID string) (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("redis: create invite token: %w", err)
+	}
+	token := hex.EncodeToString(b)
+	pipe := c.rdb.Pipeline()
+	pipe.HSet(ctx, "invites:"+token,
+		"room_id", roomID,
+		"created_by", createdByUserID,
+		"created_at", strconv.FormatInt(time.Now().UnixMilli(), 10),
+	)
+	pipe.Expire(ctx, "invites:"+token, inviteTTL)
+	_, err := pipe.Exec(ctx)
+	return token, err
+}
+
+// ConsumeInviteToken validates and atomically deletes an invite token.
+// Returns the associated roomID and true if the token was valid; false if
+// it was not found (expired or never created).
+func (c *Client) ConsumeInviteToken(ctx context.Context, token string) (roomID string, found bool, err error) {
+	key := "invites:" + token
+	vals, err := c.rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		return "", false, fmt.Errorf("redis: consume invite: %w", err)
+	}
+	if len(vals) == 0 {
+		return "", false, nil
+	}
+	_ = c.rdb.Del(ctx, key).Err() // single-use: consume immediately
+	return vals["room_id"], true, nil
+}
+
+// GetRoomMembersWithStatus returns enriched member info for the room panel.
+// memberIDs is the list returned by GetRoomAccessList.
+func (c *Client) GetRoomMembersWithStatus(ctx context.Context, roomID string, memberIDs []string) ([]model.RoomMemberStatus, error) {
+	if len(memberIDs) == 0 {
+		return nil, nil
+	}
+	users, err := c.GetUsers(ctx, memberIDs)
+	if err != nil {
+		return nil, err
+	}
+	threshold := time.Now().Add(-activeThreshold).UnixMilli()
+	result := make([]model.RoomMemberStatus, 0, len(memberIDs))
+	for _, id := range memberIDs {
+		u, ok := users[id]
+		if !ok {
+			continue
+		}
+		// IsActive: last_active within the past 5 minutes.
+		lastActive, _, _ := c.GetRoomLastActive(ctx, id, roomID)
+		isActive := !lastActive.IsZero() && lastActive.UnixMilli() >= threshold
+
+		// NotificationsOn: has at least one push subscription AND is not muted.
+		pushCount, _ := c.rdb.HLen(ctx, "users:"+id+":push_subscriptions").Result()
+		muted, _ := c.IsMuted(ctx, id)
+		notifOn := pushCount > 0 && !muted
+
+		result = append(result, model.RoomMemberStatus{
+			User:            u,
+			IsActive:        isActive,
+			NotificationsOn: notifOn,
+		})
+	}
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------

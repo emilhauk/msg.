@@ -70,6 +70,14 @@ type Unfurl struct {
 	IsShorts bool `json:"is_shorts,omitempty"`
 }
 
+// RoomMemberStatus enriches a User with room-specific presence info for the
+// room panel. Assembled per-request; never stored in Redis.
+type RoomMemberStatus struct {
+	User            *User
+	IsActive        bool // was active in this room within the last 5 minutes
+	NotificationsOn bool // has push subscriptions AND is not currently muted
+}
+
 // MessageView wraps a Message with the ID of the currently authenticated user
 // so that templates can conditionally render owner-only controls (e.g. delete).
 type MessageView struct {

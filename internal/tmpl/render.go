@@ -303,6 +303,7 @@ func New(fsys fs.FS) (*Renderer, error) {
 		"templates/room.html",
 		"templates/login.html",
 		"templates/error.html",
+		"templates/no-rooms.html",
 	}
 
 	r := &Renderer{templates: make(map[string]*template.Template)}
@@ -362,6 +363,16 @@ func New(fsys fs.FS) (*Renderer, error) {
 		r.templates[name] = t
 	}
 
+	// room-panel.html — room settings panel, loaded lazily via HTMX.
+	{
+		name := "room-panel.html"
+		t, err := template.New(name).Funcs(funcMap).ParseFS(fsys, "templates/room-panel.html")
+		if err != nil {
+			return nil, fmt.Errorf("tmpl: parse partial room-panel.html: %w", err)
+		}
+		r.templates[name] = t
+	}
+
 	return r, nil
 }
 
@@ -393,6 +404,21 @@ type ErrorData struct {
 func (r *Renderer) RenderError(w http.ResponseWriter, status int, data ErrorData) {
 	data.StatusCode = status
 	r.Render(w, status, "error.html", data)
+}
+
+// RenderPartial renders a partial template (no base layout, data passed
+// unwrapped) directly to w. Used for HTMX-loaded fragments.
+func (r *Renderer) RenderPartial(w http.ResponseWriter, status int, name string, data any) {
+	t, ok := r.templates[name]
+	if !ok {
+		http.Error(w, "template not found: "+name, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if err := t.ExecuteTemplate(w, name, data); err != nil {
+		log.Error().Err(err).Str("template", name).Msg("tmpl: execute partial")
+	}
 }
 
 // RenderString executes the named template and returns the result as a string.

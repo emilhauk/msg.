@@ -49,6 +49,7 @@ func main() {
 	port := envOrDefault("PORT", "8080")
 	openRegistration := strings.EqualFold(envOrDefault("OPEN_REGISTRATION", "false"), "true")
 	allowList := parseAllowList(envOrDefault("ALLOW_LIST", ""))
+	joinApprovers := parseAllowList(envOrDefault("JOIN_APPROVER", ""))
 	enablePasswordLogin := strings.EqualFold(envOrDefault("ENABLE_PASSWORD_LOGIN", "false"), "true")
 
 	sessionSecret, err := resolveSessionSecret()
@@ -131,7 +132,12 @@ func main() {
 	} else {
 		log.Info().Msg("password auth: disabled (ENABLE_PASSWORD_LOGIN not set)")
 	}
-	roomsHandler := &handler.RoomsHandler{Redis: redis, Renderer: renderer}
+	roomsHandler := &handler.RoomsHandler{
+		Redis:         redis,
+		Renderer:      renderer,
+		BaseURL:       baseURL,
+		JoinApprovers: joinApprovers,
+	}
 	messagesHandler := &handler.MessagesHandler{
 		Redis:    redis,
 		Renderer: renderer,
@@ -225,7 +231,12 @@ func main() {
 
 	// Protected routes.
 	mux.Handle("GET /", authMW(http.HandlerFunc(roomsHandler.HandleRoot)))
+	mux.Handle("POST /rooms", authMW(http.HandlerFunc(roomsHandler.HandleCreate)))
 	mux.Handle("GET /rooms/{id}", authMW(http.HandlerFunc(roomsHandler.HandleRoom)))
+	mux.Handle("GET /rooms/{id}/panel", authMW(http.HandlerFunc(roomsHandler.HandlePanel)))
+	mux.Handle("POST /rooms/{id}/access", authMW(http.HandlerFunc(roomsHandler.HandleAddAccess)))
+	mux.Handle("POST /rooms/{id}/invites", authMW(http.HandlerFunc(roomsHandler.HandleCreateInvite)))
+	mux.Handle("GET /join/{token}", authMW(http.HandlerFunc(roomsHandler.HandleJoin)))
 	mux.Handle("POST /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandlePost)))
 	mux.Handle("GET /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandleHistory)))
 	mux.Handle("GET /rooms/{id}/events", authMW(http.HandlerFunc(sseHandler.HandleSSE)))
