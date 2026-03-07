@@ -147,7 +147,8 @@ func main() {
 		VAPIDPublicKey: vapidCfg.VAPIDPublicKey,
 	}
 
-	authMW := middleware.RequireAuth(redis, sessionSecret)
+	secure := strings.HasPrefix(baseURL, "https://")
+	authMW := middleware.RequireAuth(redis, sessionSecret, secure)
 
 	mux := http.NewServeMux()
 

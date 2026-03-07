@@ -14,14 +14,19 @@ type contextKey string
 const UserContextKey contextKey = "user"
 
 // RequireAuth validates the session cookie and injects the User into the request
-// context. Unauthenticated requests are redirected to /login.
-func RequireAuth(redis *redisclient.Client, secret []byte) func(http.Handler) http.Handler {
+// context. Unauthenticated requests are redirected to /login. On each
+// authenticated request the cookie is re-set so that its attributes (e.g. the
+// Secure flag) are kept up to date without forcing a re-login.
+func RequireAuth(redis *redisclient.Client, secret []byte, secure bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, err := resolveUser(r, redis, secret)
 			if err != nil || user == nil {
 				http.Redirect(w, r, "/login", http.StatusFound)
 				return
+			}
+			if c, err := r.Cookie("session"); err == nil {
+				auth.SetCookie(w, c.Value, secure)
 			}
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))

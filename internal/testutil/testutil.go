@@ -127,7 +127,7 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 		VAPIDPublicKey: "test-vapid-public-key",
 	}
 
-	authMW := middleware.RequireAuth(rc, secret)
+	authMW := middleware.RequireAuth(rc, secret, false)
 	mux := http.NewServeMux()
 
 	// Static assets — needed for browser tests (SW registration, etc.).
