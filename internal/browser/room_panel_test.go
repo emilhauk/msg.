@@ -5,6 +5,7 @@ package browser_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/emilhauk/msg/internal/model"
 	"github.com/emilhauk/msg/internal/testutil"
@@ -95,9 +96,10 @@ func TestRoomPanelMembersAndPresence(t *testing.T) {
 		"active dot should appear for recently active member")
 }
 
-// TestNewRoomForm verifies that the new-room button in the sidebar shows and
-// hides the creation form, and that submitting it navigates to the new room.
-func TestNewRoomForm(t *testing.T) {
+// TestNewRoomModal verifies that the new-room button opens the creation dialog,
+// that the cancel button closes it, and that submitting the form navigates to
+// the newly-created room with the correct title.
+func TestNewRoomModal(t *testing.T) {
 	t.Parallel()
 
 	ts := testutil.NewTestServer(t)
@@ -106,30 +108,31 @@ func TestNewRoomForm(t *testing.T) {
 	b := newBrowser(t)
 	page := authPage(t, b, ts, alice, panelRoom+"-newroom")
 
-	// Form should be hidden initially.
-	formHidden := page.MustEval(`() => document.getElementById('new-room-form').hidden`).Bool()
-	assert.True(t, formHidden, "new-room form should be hidden initially")
+	// Dialog should be closed on initial load.
+	open := page.MustEval(`() => document.getElementById('new-room-dialog').open`).Bool()
+	assert.False(t, open, "new-room dialog should be closed initially")
 
-	// Click the new-room button.
+	// Clicking the button should open the modal dialog.
 	page.MustElement("#new-room-btn").MustClick()
+	open = page.MustEval(`() => document.getElementById('new-room-dialog').open`).Bool()
+	assert.True(t, open, "new-room dialog should open after clicking the button")
 
-	formHidden = page.MustEval(`() => document.getElementById('new-room-form').hidden`).Bool()
-	assert.False(t, formHidden, "new-room form should appear after clicking the button")
-
-	// Cancel hides it again.
+	// Clicking cancel should close the dialog (plays a 140 ms closing animation).
 	page.MustElement("#new-room-cancel").MustClick()
-	formHidden = page.MustEval(`() => document.getElementById('new-room-form').hidden`).Bool()
-	assert.True(t, formHidden, "new-room form should hide after clicking cancel")
+	time.Sleep(250 * time.Millisecond) // wait for close animation to finish
+	open = page.MustEval(`() => document.getElementById('new-room-dialog').open`).Bool()
+	assert.False(t, open, "new-room dialog should close after clicking cancel")
 
-	// Open again and submit a new room name.
+	// Open again, fill in a name, and submit.
 	page.MustElement("#new-room-btn").MustClick()
-	page.MustElement(".room-sidebar__new-input").MustInput("Browser Test Room")
+	page.MustElement(".new-room-dialog__input").MustInput("Browser Test Room")
 
 	nav := page.WaitNavigation(proto.PageLifecycleEventNameLoad)
-	page.MustElement(".room-sidebar__new-form").MustElement("[type=submit]").MustClick()
+	page.MustElement("#new-room-dialog form [type=submit]").MustClick()
 	nav()
 
-	// Should now be on the new room page.
+	// Should be redirected to the new room page with the correct title.
 	assert.Contains(t, page.MustInfo().URL, "/rooms/", "should be redirected to the new room")
-	page.MustElement(".room-main__title") // room page should have loaded
+	title := page.MustElement(".room-main__title").MustText()
+	assert.Contains(t, title, "Browser Test Room", "room title should match the submitted name")
 }

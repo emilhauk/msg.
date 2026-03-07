@@ -29,6 +29,7 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, .12);
 
   --header-h: 56px;
+  --room-header-h: 55px;
   --sidebar-w: 220px;
 }
 
@@ -470,6 +471,14 @@ img { display: block; max-width: 100%; }
   background: var(--color-bg-sidebar);
   border-right: 1px solid var(--color-border);
   padding: 1rem .75rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.room-sidebar nav {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -497,9 +506,10 @@ img { display: block; max-width: 100%; }
 .room-sidebar__link--active { background: var(--color-border); color: var(--color-text); font-weight: 500; }
 
 .room-sidebar__footer {
-  margin-top: .75rem;
+  margin-top: auto;
   padding-top: .75rem;
   border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .room-sidebar__new-btn {
@@ -519,27 +529,63 @@ img { display: block; max-width: 100%; }
 .room-sidebar__new-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
 .room-sidebar__new-btn:hover { background: var(--color-border); color: var(--color-text); }
 
-.room-sidebar__new-form {
-  margin-top: .5rem;
-  display: flex;
-  flex-direction: column;
-  gap: .375rem;
+/* ============================================================
+   New room dialog
+   ============================================================ */
+.new-room-dialog {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  width: min(380px, calc(100vw - 2rem));
+  box-shadow: 0 8px 32px rgba(0,0,0,.18);
+  background: var(--color-bg);
+  color: var(--color-text);
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  animation: new-room-in 180ms ease both;
 }
 
-.room-sidebar__new-input {
+.new-room-dialog.is-closing {
+  animation: new-room-out 140ms ease both;
+}
+
+@keyframes new-room-in {
+  from { opacity: 0; translate: 0 -8px; }
+}
+
+@keyframes new-room-out {
+  to { opacity: 0; translate: 0 -8px; }
+}
+
+.new-room-dialog::backdrop {
+  background: rgba(0,0,0,.45);
+}
+
+.new-room-dialog__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.new-room-dialog__input {
   width: 100%;
-  padding: .375rem .5rem;
+  padding: .5rem .625rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: .875rem;
+  font-size: .9375rem;
+  box-sizing: border-box;
 }
-.room-sidebar__new-input:focus { outline: 2px solid var(--color-primary); outline-offset: -1px; }
+.new-room-dialog__input:focus { outline: 2px solid var(--color-primary); outline-offset: -1px; }
 
-.room-sidebar__new-actions {
+.new-room-dialog__actions {
   display: flex;
-  gap: .375rem;
+  gap: .5rem;
+  margin-top: .75rem;
 }
 
 /* ---- Main area ---- */
@@ -555,6 +601,7 @@ img { display: block; max-width: 100%; }
   padding: .875rem 1.25rem;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  min-height: var(--room-header-h);
   display: flex;
   align-items: center;
   gap: .5rem;
@@ -567,13 +614,19 @@ img { display: block; max-width: 100%; }
 .room-panel-toggle:hover { color: var(--color-text); }
 [aria-expanded="true"].room-panel-toggle { color: var(--color-primary); }
 
-/* ---- Right panel ---- */
+/* ---- Right panel (now inside .room-main, absolute below header) ---- */
 .room-panel {
+  position: absolute;
+  top: var(--room-header-h, 55px);
+  right: 0;
+  z-index: 40;
   width: 260px;
-  flex-shrink: 0;
   background: var(--color-bg-sidebar);
-  border-left: 1px solid var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-md);
   overflow-y: auto;
+  max-height: calc(100% - var(--room-header-h, 55px));
   display: none;
 }
 .room-layout--panel-open .room-panel {
@@ -1870,13 +1923,74 @@ emoji-picker {
 }
 
 /* ============================================================
+   Sidebar toggle button (mobile only)
+   ============================================================ */
+.room-sidebar-toggle {
+  display: none;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+/* Backdrop: tapping outside closes sidebar on mobile */
+.room-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(0, 0, 0, .4);
+}
+
+/* ============================================================
    Responsive
    ============================================================ */
 @media (max-width: 640px) {
   :root { --sidebar-w: 0px; }
-  .room-sidebar { display: none; }
   .message { padding: .4rem .875rem; }
   .message-form { padding: .5rem .875rem .75rem; }
+
+  /* Show sidebar toggle button */
+  .room-sidebar-toggle { display: inline-flex; }
+
+  /* Sidebar: hidden off-screen by default, slides in as full-screen overlay */
+  .room-sidebar {
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: 100;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    transform: translateX(-100%);
+    transition: transform .22s ease;
+    overflow-y: auto;
+  }
+
+  /* Sidebar open */
+  .room-layout--sidebar-open .room-sidebar {
+    transform: translateX(0);
+  }
+  .room-layout--sidebar-open .room-sidebar-backdrop {
+    display: block;
+  }
+
+  /* Right panel: full-width fixed overlay below both headers */
+  .room-panel {
+    position: fixed;
+    top: calc(var(--header-h) + var(--room-header-h));
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: none;
+    overflow-y: auto;
+    z-index: 50;
+  }
 }
 
 /* ============================================================

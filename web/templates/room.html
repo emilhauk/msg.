@@ -79,7 +79,7 @@
 <div class="room-layout" id="room-layout">
 
   {{/* ---- Left sidebar: room list ---- */}}
-  <aside class="room-sidebar" aria-label="Rooms">
+  <aside class="room-sidebar" id="room-sidebar" aria-label="Rooms">
     <h2 class="room-sidebar__heading">Rooms</h2>
     <nav>
       {{range .Data.Rooms}}
@@ -90,27 +90,30 @@
       {{end}}
     </nav>
     <div class="room-sidebar__footer">
-      <button class="room-sidebar__new-btn" id="new-room-btn" aria-label="New room" aria-expanded="false" aria-controls="new-room-form">
+      <button class="room-sidebar__new-btn" id="new-room-btn" aria-label="New room" aria-haspopup="dialog">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
         New room
       </button>
-      <form id="new-room-form" class="room-sidebar__new-form" method="post" action="/rooms" hidden>
-        <input class="room-sidebar__new-input" type="text" name="name" placeholder="Room name" required autofocus>
-        <div class="room-sidebar__new-actions">
-          <button class="btn btn--primary btn--sm" type="submit">Create</button>
-          <button class="btn btn--sm" type="button" id="new-room-cancel">Cancel</button>
-        </div>
-      </form>
     </div>
   </aside>
+
+  {{/* ---- Backdrop: tapping outside sidebar closes it on mobile ---- */}}
+  <div class="room-sidebar-backdrop" id="room-sidebar-backdrop" aria-hidden="true"></div>
 
   <section class="room-main"
            hx-ext="sse"
            sse-connect="/rooms/{{.Data.Room.ID}}/events">
 
     <header class="room-main__header">
+      {{/* Sidebar toggle — visible only on mobile */}}
+      <button class="btn btn--icon room-sidebar-toggle" id="room-sidebar-toggle"
+              aria-label="Show rooms" aria-expanded="false" aria-controls="room-sidebar">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
       <h1 class="room-main__title"># {{.Data.Room.Name}}</h1>
       <span class="history-spinner" id="history-spinner" aria-hidden="true"></span>
       {{/* Burger button — toggles the right settings panel */}}
@@ -123,6 +126,13 @@
         </svg>
       </button>
     </header>
+
+    {{/* ---- Right panel: room settings, loaded below header ---- */}}
+    {{/* Content is loaded lazily via HTMX on first open. */}}
+    <aside class="room-panel" id="room-panel" aria-label="Room settings"
+           hx-get="/rooms/{{.Data.Room.ID}}/panel"
+           hx-trigger="open-panel once from:body"
+           hx-swap="innerHTML"></aside>
 
     <div class="message-list" id="message-list">
       <div id="message-list-content">
@@ -195,14 +205,19 @@
     </form>
   </section>
 
-  {{/* ---- Right panel: room settings ---- */}}
-  {{/* Content is loaded lazily via HTMX on first open. */}}
-  <aside class="room-panel" id="room-panel" aria-label="Room settings"
-         hx-get="/rooms/{{.Data.Room.ID}}/panel"
-         hx-trigger="open-panel once from:body"
-         hx-swap="innerHTML"></aside>
 
 </div>
+
+<dialog id="new-room-dialog" class="new-room-dialog">
+  <h2 class="new-room-dialog__title">New room</h2>
+  <form method="post" action="/rooms">
+    <input class="new-room-dialog__input" type="text" name="name" placeholder="Room name" required>
+    <div class="new-room-dialog__actions">
+      <button class="btn btn--primary" type="submit">Create</button>
+      <button class="btn" type="button" id="new-room-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="ios-pwa-guide" class="pwa-guide">
   <button class="pwa-guide__close" aria-label="Close">&times;</button>
@@ -241,7 +256,7 @@
   var roomID = '{{.Data.Room.ID}}';
   var CHIME_URL = '/static/chime.mp3?v={{$.BuildVersion}}';
 
-  // ---- Room panel toggle ----
+  // ---- Room panel toggle (right: members/settings) ----
   (function () {
     var layout = document.getElementById('room-layout');
     var toggle = document.getElementById('room-panel-toggle');
@@ -256,21 +271,60 @@
       }
     });
 
-    // New-room form toggle
+    // New-room dialog
     var newRoomBtn = document.getElementById('new-room-btn');
-    var newRoomForm = document.getElementById('new-room-form');
-    var newRoomCancel = document.getElementById('new-room-cancel');
-    if (newRoomBtn && newRoomForm) {
+    var newRoomDialog = document.getElementById('new-room-dialog');
+    if (newRoomBtn && newRoomDialog) {
+      function closeNewRoomDialog() {
+        newRoomDialog.classList.add('is-closing');
+        newRoomDialog.addEventListener('animationend', function handler() {
+          newRoomDialog.removeEventListener('animationend', handler);
+          newRoomDialog.classList.remove('is-closing');
+          newRoomDialog.close();
+        });
+      }
       newRoomBtn.addEventListener('click', function () {
-        newRoomForm.hidden = false;
-        newRoomBtn.setAttribute('aria-expanded', 'true');
-        newRoomForm.querySelector('input').focus();
+        newRoomDialog.querySelector('input').value = '';
+        newRoomDialog.showModal();
+        newRoomDialog.querySelector('input').focus();
       });
-      newRoomCancel.addEventListener('click', function () {
-        newRoomForm.hidden = true;
-        newRoomBtn.setAttribute('aria-expanded', 'false');
+      document.getElementById('new-room-cancel').addEventListener('click', closeNewRoomDialog);
+      newRoomDialog.addEventListener('click', function (e) {
+        if (e.target === newRoomDialog) closeNewRoomDialog();
+      });
+      newRoomDialog.addEventListener('cancel', function (e) {
+        e.preventDefault();
+        closeNewRoomDialog();
       });
     }
+  }());
+
+  // ---- Left sidebar toggle (mobile) ----
+  (function () {
+    var layout = document.getElementById('room-layout');
+    var sidebarToggle = document.getElementById('room-sidebar-toggle');
+    var backdrop = document.getElementById('room-sidebar-backdrop');
+
+    function openSidebar() {
+      layout.classList.add('room-layout--sidebar-open');
+      sidebarToggle.setAttribute('aria-expanded', 'true');
+    }
+    function closeSidebar() {
+      layout.classList.remove('room-layout--sidebar-open');
+      sidebarToggle.setAttribute('aria-expanded', 'false');
+    }
+
+    sidebarToggle.addEventListener('click', function () {
+      layout.classList.contains('room-layout--sidebar-open') ? closeSidebar() : openSidebar();
+    });
+    backdrop.addEventListener('click', closeSidebar);
+
+    // Expose for swipe module
+    window.__openSidebar = openSidebar;
+    window.__closeSidebar = closeSidebar;
+    window.__isSidebarOpen = function () {
+      return layout.classList.contains('room-layout--sidebar-open');
+    };
   }());
 </script>
 <script type="module" src="/static/room.js?v={{$.BuildVersion}}"></script>
