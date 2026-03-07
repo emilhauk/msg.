@@ -109,6 +109,14 @@ func (ts *TestServer) SeedRoom(t *testing.T, room model.Room) {
 	}
 }
 
+// GrantAccess adds userID to roomID's access list.
+func (ts *TestServer) GrantAccess(t *testing.T, roomID, userID string) {
+	t.Helper()
+	if err := ts.Redis.AddRoomAccess(context.Background(), roomID, userID); err != nil {
+		t.Fatalf("testutil: grant access %q→%q: %v", userID, roomID, err)
+	}
+}
+
 // buildMux mirrors the route wiring in main.go with password auth always
 // enabled and optional integrations (S3) omitted.
 // push may be nil — when non-nil it is wired into MessagesHandler for push dispatch tests.
@@ -118,7 +126,12 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 		SessionSecret:    secret,
 		OpenRegistration: true, // no allow-list by default; tests can use a restricted server
 	}
-	roomsHandler := &handler.RoomsHandler{Redis: rc, Renderer: renderer}
+	roomsHandler := &handler.RoomsHandler{
+		Redis:         rc,
+		Renderer:      renderer,
+		BaseURL:       "http://localhost",
+		JoinApprovers: []string{"approver@example.com"},
+	}
 	messagesHandler := &handler.MessagesHandler{Redis: rc, Renderer: renderer, Push: push}
 	reactionsHandler := &handler.ReactionsHandler{Redis: rc, Renderer: renderer}
 	sseHandler := &handler.SSEHandler{Redis: rc, Version: "test"}
@@ -150,7 +163,12 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 	mux.HandleFunc("POST /auth/password/login", passwordHandler.HandleLogin)
 
 	mux.Handle("GET /", authMW(http.HandlerFunc(roomsHandler.HandleRoot)))
+	mux.Handle("POST /rooms", authMW(http.HandlerFunc(roomsHandler.HandleCreate)))
 	mux.Handle("GET /rooms/{id}", authMW(http.HandlerFunc(roomsHandler.HandleRoom)))
+	mux.Handle("GET /rooms/{id}/panel", authMW(http.HandlerFunc(roomsHandler.HandlePanel)))
+	mux.Handle("POST /rooms/{id}/access", authMW(http.HandlerFunc(roomsHandler.HandleAddAccess)))
+	mux.Handle("POST /rooms/{id}/invites", authMW(http.HandlerFunc(roomsHandler.HandleCreateInvite)))
+	mux.Handle("GET /join/{token}", authMW(http.HandlerFunc(roomsHandler.HandleJoin)))
 	mux.Handle("POST /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandlePost)))
 	mux.Handle("GET /rooms/{id}/messages", authMW(http.HandlerFunc(messagesHandler.HandleHistory)))
 	mux.Handle("GET /rooms/{id}/events", authMW(http.HandlerFunc(sseHandler.HandleSSE)))

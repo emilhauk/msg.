@@ -33,6 +33,7 @@ func TestThemeToggle_DarkOS(t *testing.T) {
 	}
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: themeRoom, Name: "Theme Test Room"})
+	ts.GrantAccess(t, themeRoom, alice.ID)
 
 	b := newBrowser(t)
 	page := b.MustPage("")
@@ -82,6 +83,7 @@ func TestThemeToggle_LightOS(t *testing.T) {
 	}
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: themeRoom, Name: "Theme Test Room"})
+	ts.GrantAccess(t, themeRoom, alice.ID)
 
 	b := newBrowser(t)
 	page := b.MustPage("")

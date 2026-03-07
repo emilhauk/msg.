@@ -76,17 +76,35 @@
 {{end}}
 
 {{define "content"}}
-<div class="room-layout">
-  {{/* room-sidebar: hidden until multi-room support is added
-  <aside class="room-sidebar">
+<div class="room-layout" id="room-layout">
+
+  {{/* ---- Left sidebar: room list ---- */}}
+  <aside class="room-sidebar" aria-label="Rooms">
     <h2 class="room-sidebar__heading">Rooms</h2>
     <nav>
-      <a class="room-sidebar__link room-sidebar__link--active" href="/rooms/{{.Data.Room.ID}}">
-        # {{.Data.Room.Name}}
+      {{range .Data.Rooms}}
+      <a class="room-sidebar__link{{if eq .ID $.Data.Room.ID}} room-sidebar__link--active{{end}}"
+         href="/rooms/{{.ID}}">
+        # {{.Name}}
       </a>
+      {{end}}
     </nav>
+    <div class="room-sidebar__footer">
+      <button class="room-sidebar__new-btn" id="new-room-btn" aria-label="New room" aria-expanded="false" aria-controls="new-room-form">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        New room
+      </button>
+      <form id="new-room-form" class="room-sidebar__new-form" method="post" action="/rooms" hidden>
+        <input class="room-sidebar__new-input" type="text" name="name" placeholder="Room name" required autofocus>
+        <div class="room-sidebar__new-actions">
+          <button class="btn btn--primary btn--sm" type="submit">Create</button>
+          <button class="btn btn--sm" type="button" id="new-room-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
   </aside>
-  */}}
 
   <section class="room-main"
            hx-ext="sse"
@@ -95,6 +113,15 @@
     <header class="room-main__header">
       <h1 class="room-main__title"># {{.Data.Room.Name}}</h1>
       <span class="history-spinner" id="history-spinner" aria-hidden="true"></span>
+      {{/* Burger button — toggles the right settings panel */}}
+      <button class="btn btn--icon room-panel-toggle" id="room-panel-toggle"
+              aria-label="Room settings" aria-expanded="false" aria-controls="room-panel">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
     </header>
 
     <div class="message-list" id="message-list">
@@ -167,6 +194,14 @@
       </div>
     </form>
   </section>
+
+  {{/* ---- Right panel: room settings ---- */}}
+  {{/* Content is loaded lazily via HTMX on first open. */}}
+  <aside class="room-panel" id="room-panel" aria-label="Room settings"
+         hx-get="/rooms/{{.Data.Room.ID}}/panel"
+         hx-trigger="open-panel once from:body"
+         hx-swap="innerHTML"></aside>
+
 </div>
 
 <dialog id="ios-pwa-guide" class="pwa-guide">
@@ -206,6 +241,37 @@
   var roomID = '{{.Data.Room.ID}}';
   var CHIME_URL = '/static/chime.mp3?v={{$.BuildVersion}}';
 
+  // ---- Room panel toggle ----
+  (function () {
+    var layout = document.getElementById('room-layout');
+    var toggle = document.getElementById('room-panel-toggle');
+    var panelLoaded = false;
+
+    toggle.addEventListener('click', function () {
+      var open = layout.classList.toggle('room-layout--panel-open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open && !panelLoaded) {
+        panelLoaded = true;
+        document.body.dispatchEvent(new Event('open-panel'));
+      }
+    });
+
+    // New-room form toggle
+    var newRoomBtn = document.getElementById('new-room-btn');
+    var newRoomForm = document.getElementById('new-room-form');
+    var newRoomCancel = document.getElementById('new-room-cancel');
+    if (newRoomBtn && newRoomForm) {
+      newRoomBtn.addEventListener('click', function () {
+        newRoomForm.hidden = false;
+        newRoomBtn.setAttribute('aria-expanded', 'true');
+        newRoomForm.querySelector('input').focus();
+      });
+      newRoomCancel.addEventListener('click', function () {
+        newRoomForm.hidden = true;
+        newRoomBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+  }());
 </script>
 <script type="module" src="/static/room.js?v={{$.BuildVersion}}"></script>
 {{end}}

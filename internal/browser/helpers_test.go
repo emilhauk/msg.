@@ -52,10 +52,12 @@ func newBrowser(t *testing.T) *rod.Browser {
 	return b
 }
 
-// authPage creates a new page, sets the session cookie for the given user,
-// navigates to the room, and waits for the page to fully load.
+// authPage creates a new page, grants the user access to the room, sets the
+// session cookie, navigates to the room, and waits for the page to fully load.
 func authPage(t *testing.T, b *rod.Browser, ts *testutil.TestServer, user model.User, room string) *rod.Page {
 	t.Helper()
+	ts.GrantAccess(t, room, user.ID)
+
 	parsed, err := url.Parse(ts.Server.URL)
 	require.NoError(t, err, "authPage: parse server URL")
 
