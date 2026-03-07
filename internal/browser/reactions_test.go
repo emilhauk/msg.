@@ -80,6 +80,7 @@ func TestReaction_OtherUserReactionVisible(t *testing.T) {
 	ts.SeedRoom(t, model.Room{ID: reactRoom, Name: "Reaction Test Room"})
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, reactRoom, bob.ID)
 
 	msg := seedMessage(t, ts, alice, reactRoom, "react to me")
 
@@ -169,6 +170,7 @@ func TestReaction_TooltipConstrainedByMouseover(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: reactRoom, Name: "Reaction Test Room"})
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	ts.GrantAccess(t, reactRoom, alice.ID)
 
 	msg := seedMessage(t, ts, alice, reactRoom, "tooltip boundary test")
 	postReaction(t, ts, alice, reactRoom, msg.ID, "👍")

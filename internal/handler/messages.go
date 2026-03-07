@@ -45,6 +45,12 @@ func (h *MessagesHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
 	user := middleware.UserFromContext(r.Context())
 
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -235,6 +241,14 @@ func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedName
 //   - ?after=<ms>&limit=N   — catch-up messages missed during an idle reconnect
 func (h *MessagesHandler) HandleHistory(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
+	user := middleware.UserFromContext(r.Context())
+
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	q := r.URL.Query()
 	afterStr := q.Get("after")
 	beforeStr := q.Get("before")
@@ -244,8 +258,6 @@ func (h *MessagesHandler) HandleHistory(w http.ResponseWriter, r *http.Request) 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 		limit = l
 	}
-
-	user := middleware.UserFromContext(r.Context())
 
 	type historyData struct {
 		Messages      []*model.MessageView
@@ -359,6 +371,12 @@ func (h *MessagesHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	msgID := r.PathValue("msgID")
 	user := middleware.UserFromContext(r.Context())
 
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	msg, err := h.Redis.GetMessage(r.Context(), msgID)
 	if err != nil || msg == nil {
 		http.Error(w, "message not found", http.StatusNotFound)
@@ -405,6 +423,12 @@ func (h *MessagesHandler) HandleEdit(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
 	msgID := r.PathValue("msgID")
 	user := middleware.UserFromContext(r.Context())
+
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	msg, err := h.Redis.GetMessage(r.Context(), msgID)
 	if err != nil || msg == nil {

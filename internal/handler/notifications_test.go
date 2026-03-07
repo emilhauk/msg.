@@ -204,6 +204,7 @@ func TestHandleGetMute_Forever(t *testing.T) {
 func TestHandleRoomActive(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/"+testRoom+"/active", nil)
@@ -221,6 +222,7 @@ func TestHandleRoomActive(t *testing.T) {
 func TestHandleRoomInactive(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	// Seed a viewing key first.
@@ -241,6 +243,7 @@ func TestHandleRoomInactive(t *testing.T) {
 func TestHandleRoomMembers(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 

@@ -17,6 +17,7 @@ import (
 func TestHandleToggle_Add(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, alice, "react to me", 0)
 
@@ -46,6 +47,7 @@ func TestHandleToggle_Add(t *testing.T) {
 func TestHandleToggle_Off(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, alice, "toggle off", 0)
 
@@ -84,6 +86,7 @@ func TestHandleToggle_Off(t *testing.T) {
 func TestHandleToggle_InvalidEmoji(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, alice, "no bad emoji", 0)
 

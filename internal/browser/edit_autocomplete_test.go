@@ -41,6 +41,7 @@ func TestEditAutocomplete(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: editACRoom, Name: "Edit AC"})
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	ts.GrantAccess(t, editACRoom, alice.ID)
 
 	// Post via HTTP so Alice is recorded as a room member (members ZSet).
 	postMessage(t, ts, alice, editACRoom, "edit me please")

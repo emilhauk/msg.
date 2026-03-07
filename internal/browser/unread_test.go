@@ -26,6 +26,7 @@ func TestUnreadCount_HiddenTab(t *testing.T) {
 	ts.SeedRoom(t, model.Room{ID: unreadRoom, Name: "Browser Test Room"})
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, unreadRoom, bob.ID)
 
 	b := newBrowser(t)
 	page := authPage(t, b, ts, alice, unreadRoom)

@@ -93,6 +93,8 @@ func TestOwnerControls_SSEInsert_OtherUser(t *testing.T) {
 	}
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: roomID, Name: "Browser Test Room"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, roomID, bob.ID)
 
 	b := newBrowser(t)
 	page := authPage(t, b, ts, alice, roomID)

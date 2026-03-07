@@ -257,7 +257,7 @@ func main() {
 
 	// Media upload — only available when S3 is configured.
 	if s3Client != nil {
-		uploadHandler := &handler.UploadHandler{S3: s3Client}
+		uploadHandler := &handler.UploadHandler{Redis: redis, S3: s3Client}
 		mux.Handle("GET /rooms/{id}/upload-url", authMW(http.HandlerFunc(uploadHandler.HandlePresignURL)))
 	}
 

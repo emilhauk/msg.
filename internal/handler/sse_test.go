@@ -16,6 +16,7 @@ import (
 func TestHandleSSE_InitialConnect(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -48,6 +49,7 @@ func TestHandleSSE_InitialConnect(t *testing.T) {
 func TestHandleSSE_PubSubRelay(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

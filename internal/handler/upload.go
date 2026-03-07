@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/emilhauk/msg/internal/middleware"
+	redisclient "github.com/emilhauk/msg/internal/redis"
 	"github.com/emilhauk/msg/internal/storage"
 )
 
@@ -25,7 +26,8 @@ var allowedContentTypes = map[string]bool{
 
 // UploadHandler handles presigned URL generation for direct-to-S3 uploads.
 type UploadHandler struct {
-	S3 *storage.S3Client
+	Redis *redisclient.Client
+	S3    *storage.S3Client
 }
 
 type presignResponse struct {
@@ -46,6 +48,12 @@ type presignResponse struct {
 func (h *UploadHandler) HandlePresignURL(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
 	user := middleware.UserFromContext(r.Context())
+
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	q := r.URL.Query()
 	hash := q.Get("hash")

@@ -49,6 +49,7 @@ func TestKeyboard_E_Ignored_OtherUserMessage(t *testing.T) {
 	ts.SeedRoom(t, model.Room{ID: kbRoom, Name: "Keyboard Test"})
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, kbRoom, bob.ID)
 
 	b := newBrowser(t)
 	page := authPage(t, b, ts, alice, kbRoom)
@@ -89,6 +90,7 @@ func TestKeyboard_D_Ignored_OtherUserMessage(t *testing.T) {
 	ts.SeedRoom(t, model.Room{ID: kbRoom, Name: "Keyboard Test"})
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, kbRoom, bob.ID)
 
 	b := newBrowser(t)
 	page := authPage(t, b, ts, alice, kbRoom)

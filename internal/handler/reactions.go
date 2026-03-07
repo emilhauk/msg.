@@ -33,6 +33,12 @@ func (h *ReactionsHandler) HandleToggle(w http.ResponseWriter, r *http.Request) 
 	msgID := r.PathValue("msgID")
 	user := middleware.UserFromContext(r.Context())
 
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return

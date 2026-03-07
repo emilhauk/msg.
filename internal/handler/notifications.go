@@ -158,6 +158,13 @@ func (h *NotificationsHandler) HandleGetMute(w http.ResponseWriter, r *http.Requ
 func (h *NotificationsHandler) HandleRoomActive(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 	roomID := r.PathValue("id")
+
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	_ = h.Redis.SetRoomLastActive(r.Context(), user.ID, roomID)
 	_ = h.Redis.SetRoomViewing(r.Context(), user.ID, roomID)
 	w.WriteHeader(http.StatusNoContent)
@@ -168,6 +175,13 @@ func (h *NotificationsHandler) HandleRoomActive(w http.ResponseWriter, r *http.R
 func (h *NotificationsHandler) HandleRoomInactive(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 	roomID := r.PathValue("id")
+
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	_ = h.Redis.ClearRoomViewing(r.Context(), user.ID, roomID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -176,6 +190,13 @@ func (h *NotificationsHandler) HandleRoomInactive(w http.ResponseWriter, r *http
 // GET /rooms/{id}/members  → [{ id, name, avatar_url }, ...]
 func (h *NotificationsHandler) HandleRoomMembers(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
+	user := middleware.UserFromContext(r.Context())
+
+	ok, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	memberIDs, err := h.Redis.GetRoomMembers(r.Context(), roomID)
 	if err != nil {

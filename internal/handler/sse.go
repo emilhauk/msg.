@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/emilhauk/msg/internal/middleware"
 	redisclient "github.com/emilhauk/msg/internal/redis"
 )
 
@@ -28,6 +29,13 @@ type SSEHandler struct {
 // contain colons (e.g. "github:12345") which would break a colon-based split.
 func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	roomID := r.PathValue("id")
+	user := middleware.UserFromContext(r.Context())
+
+	accessible, err := h.Redis.IsRoomAccessible(r.Context(), roomID, user.ID)
+	if err != nil || !accessible {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

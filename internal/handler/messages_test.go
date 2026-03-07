@@ -48,6 +48,7 @@ func seedMessage(t *testing.T, ts *testutil.TestServer, user model.User, text st
 func TestHandlePost_Success(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	form := url.Values{"text": {"hello world"}}
@@ -63,6 +64,7 @@ func TestHandlePost_Success(t *testing.T) {
 func TestHandlePost_EmptyText(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	form := url.Values{"text": {""}}
@@ -92,6 +94,7 @@ func TestHandlePost_Unauthenticated(t *testing.T) {
 func TestHandlePost_PubSubPayload(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -121,6 +124,7 @@ func TestHandlePost_PubSubPayload(t *testing.T) {
 func TestHandleDelete_Own(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, alice, "to be deleted", 0)
 
@@ -135,6 +139,7 @@ func TestHandleDelete_Own(t *testing.T) {
 func TestHandleDelete_Other(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	aliceCookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, bob, "bob's message", 0)
 
@@ -149,6 +154,7 @@ func TestHandleDelete_Other(t *testing.T) {
 func TestHandleDelete_Unknown(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 
 	req, _ := http.NewRequest("DELETE", ts.Server.URL+"/rooms/"+testRoom+"/messages/nonexistent-id", nil)
@@ -162,6 +168,7 @@ func TestHandleDelete_Unknown(t *testing.T) {
 func TestHandleEdit_Own(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	// User record needed for hydrateMessages inside HandleEdit.
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	cookie := ts.AuthCookie(t, alice)
@@ -180,6 +187,7 @@ func TestHandleEdit_Own(t *testing.T) {
 func TestHandleEdit_Other(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	aliceCookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, bob, "bob's message", 0)
 
@@ -196,6 +204,7 @@ func TestHandleEdit_Other(t *testing.T) {
 func TestHandleEdit_EmptyText(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	cookie := ts.AuthCookie(t, alice)
 	msg := seedMessage(t, ts, alice, "original", 0)
 
@@ -212,6 +221,7 @@ func TestHandleEdit_EmptyText(t *testing.T) {
 func TestHandleHistory_Before(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	cookie := ts.AuthCookie(t, alice)
 
@@ -234,6 +244,7 @@ func TestHandleHistory_Before(t *testing.T) {
 func TestHandleHistory_After(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	cookie := ts.AuthCookie(t, alice)
 
@@ -254,6 +265,7 @@ func TestHandleHistory_After(t *testing.T) {
 func TestHandleHistory_Latest(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	cookie := ts.AuthCookie(t, alice)
 
@@ -337,6 +349,7 @@ func TestHandlePost_PushDelivery(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, bob.ID))
@@ -367,6 +380,7 @@ func TestHandlePost_PushSkipsSender(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 
 	// Only alice has a subscription — she is also the sender, so no push should fire.
@@ -395,6 +409,7 @@ func TestHandlePost_PushMutedRecipient(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, bob.ID))
@@ -425,6 +440,7 @@ func TestHandlePost_PushExpiredSubscription(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, bob.ID))
@@ -459,6 +475,7 @@ func TestHandlePost_PushSkipsActiveRecipient(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, bob.ID))
@@ -491,6 +508,7 @@ func TestHandlePost_PushDeliveredToInactiveRecipient(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, bob.ID))
@@ -524,6 +542,7 @@ func TestHandlePost_MentionNotification(t *testing.T) {
 	sender := buildPushSender(t)
 	ts := testutil.NewTestServerWithPush(t, sender)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, alice.ID))
 	require.NoError(t, ts.Redis.TouchRoomMember(context.Background(), testRoom, bob.ID))
