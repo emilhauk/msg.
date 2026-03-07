@@ -278,26 +278,43 @@ func (c *Client) SeedRoom(ctx context.Context, room model.Room) error {
 	return c.rdb.SAdd(ctx, accessKey, members...).Err()
 }
 
+// createRoomMaxRetries is the number of times CreateRoom will retry with a new
+// random ID when a collision is detected.
+const createRoomMaxRetries = 5
+
 // CreateRoom creates a new private room owned by createdByUserID. The creator
 // is automatically added to the room's access list. The room ID is a random
-// 8-character hex string. Returns the created Room.
+// 8-character hex string. If the generated ID collides with an existing room,
+// a new ID is generated and the operation is retried up to createRoomMaxRetries
+// times. Returns the created Room.
 func (c *Client) CreateRoom(ctx context.Context, name, createdByUserID string) (model.Room, error) {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return model.Room{}, fmt.Errorf("redis: create room: generate id: %w", err)
-	}
-	id := hex.EncodeToString(b)
-	ts := float64(time.Now().Unix())
-	room := model.Room{ID: id, Name: name}
+	for attempt := 0; attempt < createRoomMaxRetries; attempt++ {
+		b := make([]byte, 4)
+		if _, err := rand.Read(b); err != nil {
+			return model.Room{}, fmt.Errorf("redis: create room: generate id: %w", err)
+		}
+		id := hex.EncodeToString(b)
 
-	pipe := c.rdb.Pipeline()
-	pipe.ZAdd(ctx, "rooms", goredis.Z{Score: ts, Member: id})
-	pipe.HSet(ctx, "rooms:"+id, "id", id, "name", name, "created_by", createdByUserID)
-	pipe.SAdd(ctx, "rooms:"+id+":access", createdByUserID)
-	if _, err := pipe.Exec(ctx); err != nil {
-		return model.Room{}, fmt.Errorf("redis: create room: %w", err)
+		// HSetNX on "id" field: returns false if the hash already exists.
+		created, err := c.rdb.HSetNX(ctx, "rooms:"+id, "id", id).Result()
+		if err != nil {
+			return model.Room{}, fmt.Errorf("redis: create room: check collision: %w", err)
+		}
+		if !created {
+			continue // collision — retry with a new ID
+		}
+
+		ts := float64(time.Now().Unix())
+		pipe := c.rdb.Pipeline()
+		pipe.HSet(ctx, "rooms:"+id, "name", name, "created_by", createdByUserID)
+		pipe.ZAddNX(ctx, "rooms", goredis.Z{Score: ts, Member: id})
+		pipe.SAdd(ctx, "rooms:"+id+":access", createdByUserID)
+		if _, err := pipe.Exec(ctx); err != nil {
+			return model.Room{}, fmt.Errorf("redis: create room: %w", err)
+		}
+		return model.Room{ID: id, Name: name}, nil
 	}
-	return room, nil
+	return model.Room{}, fmt.Errorf("redis: create room: failed to generate unique id after %d attempts", createRoomMaxRetries)
 }
 
 // GetRoom retrieves a room by ID.
