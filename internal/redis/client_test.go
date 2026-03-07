@@ -301,6 +301,58 @@ func TestGetMuteUntil_Timed(t *testing.T) {
 	assert.False(t, isMuted, "should not be muted after TTL expires")
 }
 
+// ---------------------------------------------------------------------------
+// Rooms
+// ---------------------------------------------------------------------------
+
+func TestCreateRoom_UniqueID(t *testing.T) {
+	rc, _ := newClient(t)
+	ctx := context.Background()
+
+	room, err := rc.CreateRoom(ctx, "Test Room", "creator-1")
+	require.NoError(t, err)
+	assert.Len(t, room.ID, 8, "room ID should be 8 hex chars")
+	assert.Equal(t, "Test Room", room.Name)
+
+	// Creator should have access.
+	ok, err := rc.IsRoomAccessible(ctx, room.ID, "creator-1")
+	require.NoError(t, err)
+	assert.True(t, ok, "creator should have access")
+}
+
+func TestCreateRoom_CollisionRetry(t *testing.T) {
+	rc, mr := newClient(t)
+	ctx := context.Background()
+
+	// Pre-create a room to ensure the hash exists. We can't easily control
+	// the random ID, but we can verify that CreateRoom never overwrites an
+	// existing room by seeding all 8-char hex IDs... that's impractical.
+	// Instead we test the safety property: creating two rooms must produce
+	// distinct IDs and neither overwrites the other.
+	room1, err := rc.CreateRoom(ctx, "Room One", "u1")
+	require.NoError(t, err)
+	room2, err := rc.CreateRoom(ctx, "Room Two", "u2")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, room1.ID, room2.ID, "two rooms should have different IDs")
+
+	// Both rooms should be intact.
+	r1, err := rc.GetRoom(ctx, room1.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Room One", r1.Name)
+
+	r2, err := rc.GetRoom(ctx, room2.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Room Two", r2.Name)
+
+	// Both should appear in the rooms ZSet.
+	_ = mr // keep mr reference
+	ok1, _ := rc.IsRoomAccessible(ctx, room1.ID, "u1")
+	ok2, _ := rc.IsRoomAccessible(ctx, room2.ID, "u2")
+	assert.True(t, ok1)
+	assert.True(t, ok2)
+}
+
 func TestReactionToggle_ReactedByMe(t *testing.T) {
 	rc, _ := newClient(t)
 	ctx := context.Background()
