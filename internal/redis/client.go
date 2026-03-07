@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/emilhauk/msg/internal/model"
 	goredis "github.com/redis/go-redis/v9"
@@ -50,7 +51,11 @@ func New(redisURL string) (*Client, error) {
 			return &Client{rdb: rdb}, nil
 		}
 		if attempt < redisRetryAttempts {
-			log.Printf("redis: ping failed (attempt %d/%d): %v, retrying in %s...", attempt, redisRetryAttempts, lastErr, redisRetryDelay)
+			log.Warn().Err(lastErr).
+				Int("attempt", attempt).
+				Int("max", redisRetryAttempts).
+				Dur("retry_in", redisRetryDelay).
+				Msg("redis: ping failed, retrying")
 			time.Sleep(redisRetryDelay)
 		}
 	}

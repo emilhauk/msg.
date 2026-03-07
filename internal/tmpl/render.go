@@ -13,6 +13,7 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/rs/zerolog/log"
 
 	"github.com/emilhauk/msg/internal/model"
 )
@@ -375,8 +376,8 @@ func (r *Renderer) Render(w http.ResponseWriter, status int, name string, data a
 	w.WriteHeader(status)
 	wrapped := pageData{BuildVersion: r.BuildVersion, Data: data}
 	if err := t.ExecuteTemplate(w, name, wrapped); err != nil {
-		// Headers already sent; log to stderr.
-		fmt.Printf("tmpl: execute %s: %v\n", name, err)
+		// Headers already sent; log the error.
+		log.Error().Err(err).Str("template", name).Msg("tmpl: execute")
 	}
 }
 

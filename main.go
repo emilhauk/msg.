@@ -4,13 +4,14 @@ import (
 	"context"
 	"embed"
 	"encoding/hex"
-	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"text/template"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/emilhauk/msg/internal/auth"
 	"github.com/emilhauk/msg/internal/handler"
@@ -33,6 +34,14 @@ var buildVersion = "dev"
 var webFS embed.FS
 
 func main() {
+	logLevel, err := zerolog.ParseLevel(envOrDefault("LOG_LEVEL", "info"))
+	if err != nil {
+		logLevel = zerolog.InfoLevel
+	}
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+	log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
+	zerolog.SetGlobalLevel(logLevel)
+
 	redisURL := envOrDefault("REDIS_URL", "redis://localhost:6379")
 	sessionSecretHex := envOrDefault("SESSION_SECRET", "0000000000000000000000000000000000000000000000000000000000000000")
 	baseURL := envOrDefault("BASE_URL", "http://localhost:8080")
@@ -43,28 +52,28 @@ func main() {
 
 	sessionSecret, err := hex.DecodeString(sessionSecretHex)
 	if err != nil || len(sessionSecret) == 0 {
-		log.Fatalf("invalid SESSION_SECRET: must be a hex string")
+		log.Fatal().Msg("invalid SESSION_SECRET: must be a hex string")
 	}
 
 	redis, err := redisclient.New(redisURL)
 	if err != nil {
-		log.Fatalf("connect to redis: %v", err)
+		log.Fatal().Err(err).Msg("connect to redis")
 	}
 	defer redis.Close()
 
 	// Seed default room.
 	if err := redis.SeedRoom(context.Background(), model.Room{ID: "bemro", Name: "Project BEMRØ"}); err != nil {
-		log.Fatalf("seed room: %v", err)
+		log.Fatal().Err(err).Msg("seed room")
 	}
 
 	// Templates.
 	webSubFS, err := fs.Sub(webFS, "web")
 	if err != nil {
-		log.Fatalf("sub fs: %v", err)
+		log.Fatal().Err(err).Msg("sub fs")
 	}
 	renderer, err := tmpl.New(webSubFS)
 	if err != nil {
-		log.Fatalf("parse templates: %v", err)
+		log.Fatal().Err(err).Msg("parse templates")
 	}
 	renderer.BuildVersion = buildVersion
 
@@ -79,7 +88,7 @@ func main() {
 			SecretAccessKey: envOrDefault("S3_SECRET_ACCESS_KEY", ""),
 		})
 		if err != nil {
-			log.Fatalf("connect to S3: %v", err)
+			log.Fatal().Err(err).Msg("connect to S3")
 		}
 	}
 
@@ -92,9 +101,9 @@ func main() {
 	var pushSender *webpush.Sender
 	if vapidCfg.IsConfigured() {
 		pushSender = webpush.New(vapidCfg)
-		log.Println("web push: enabled")
+		log.Info().Msg("web push: enabled")
 	} else {
-		log.Println("web push: disabled (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT not set)")
+		log.Info().Msg("web push: disabled (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT not set)")
 	}
 
 	// Handlers.
@@ -116,9 +125,9 @@ func main() {
 		AllowList:        allowList,
 	}
 	if enablePasswordLogin {
-		log.Println("password auth: enabled")
+		log.Info().Msg("password auth: enabled")
 	} else {
-		log.Println("password auth: disabled (ENABLE_PASSWORD_LOGIN not set)")
+		log.Info().Msg("password auth: disabled (ENABLE_PASSWORD_LOGIN not set)")
 	}
 	roomsHandler := &handler.RoomsHandler{Redis: redis, Renderer: renderer}
 	messagesHandler := &handler.MessagesHandler{
@@ -242,9 +251,9 @@ func main() {
 	}
 
 	addr := ":" + port
-	fmt.Printf("listening on %s\n", addr)
+	log.Info().Str("addr", addr).Msg("listening")
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("server: %v", err)
+		log.Fatal().Err(err).Msg("server")
 	}
 }
 
@@ -255,11 +264,11 @@ func main() {
 func buildChromaCSS() string {
 	light, err := tmpl.ChromaCSS("github")
 	if err != nil {
-		log.Printf("chroma: generate light CSS: %v", err)
+		log.Error().Err(err).Msg("chroma: generate light CSS")
 	}
 	dark, err := tmpl.ChromaCSS("github-dark")
 	if err != nil {
-		log.Printf("chroma: generate dark CSS: %v", err)
+		log.Error().Err(err).Msg("chroma: generate dark CSS")
 	}
 
 	return light + "\n" +

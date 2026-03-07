@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
+	"github.com/rs/zerolog/log"
 	webpushlib "github.com/SherClockHolmes/webpush-go"
 )
 
@@ -92,8 +92,11 @@ func (s *Sender) Send(ctx context.Context, subscriptionJSON string, p Payload) (
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		log.Printf("webpush: push rejected endpoint=%s status=%d body=%s",
-			sub.Endpoint, resp.StatusCode, bytes.TrimSpace(body))
+		log.Ctx(ctx).Warn().
+			Str("endpoint", sub.Endpoint).
+			Int("status", resp.StatusCode).
+			Bytes("body", bytes.TrimSpace(body)).
+			Msg("webpush: push rejected")
 		return false, fmt.Errorf("push service returned %d", resp.StatusCode)
 	}
 	return false, nil
@@ -107,7 +110,7 @@ func (s *Sender) SendToMany(ctx context.Context, subscriptions map[string]string
 	for endpoint, subJSON := range subscriptions {
 		gone, err := s.Send(ctx, subJSON, p)
 		if err != nil {
-			log.Printf("webpush: send to %s: %v", endpoint, err)
+			log.Ctx(ctx).Error().Err(err).Str("endpoint", endpoint).Msg("webpush: send")
 		}
 		if gone {
 			expired = append(expired, endpoint)

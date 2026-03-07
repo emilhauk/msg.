@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/emilhauk/msg/internal/middleware"
 	"github.com/emilhauk/msg/internal/model"
@@ -154,7 +155,7 @@ func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedName
 
 	members, err := h.Redis.GetRoomMembers(ctx, msg.RoomID)
 	if err != nil {
-		log.Printf("webpush: get room members: %v", err)
+		log.Ctx(ctx).Error().Err(err).Msg("webpush: get room members")
 		return
 	}
 
@@ -177,7 +178,7 @@ func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedName
 
 		muted, err := h.Redis.IsMuted(ctx, memberID)
 		if err != nil {
-			log.Printf("webpush: check mute for %s: %v", memberID, err)
+			log.Ctx(ctx).Warn().Err(err).Str("userID", memberID).Msg("webpush: check mute")
 		}
 		if muted {
 			continue
@@ -377,11 +378,11 @@ func (h *MessagesHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 			if key, ok := h.S3.KeyFromURL(a.URL); ok {
 				keys = append(keys, key)
 			} else {
-				log.Printf("delete message %s: attachment URL %q does not match S3 endpoint, skipping", msgID, a.URL)
+				log.Ctx(r.Context()).Warn().Str("msgID", msgID).Str("url", a.URL).Msg("delete message: attachment URL does not match S3 endpoint, skipping")
 			}
 		}
 		if err := h.S3.DeleteObjects(r.Context(), keys); err != nil {
-			log.Printf("delete message %s: remove S3 objects: %v", msgID, err)
+			log.Ctx(r.Context()).Error().Err(err).Str("msgID", msgID).Msg("delete message: remove S3 objects")
 			// Non-fatal: proceed to delete the message record so the user is
 			// not left unable to delete. The orphaned objects are small.
 		}
