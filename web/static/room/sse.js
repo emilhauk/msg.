@@ -49,9 +49,22 @@ async function doCatchUp() {
       }
     }
 
-    // Insert new (non-duplicate) articles before the SSE target.
+    // Insert new articles; refresh existing ones in-place (edits, reaction changes).
     for (const article of newArticles) {
-      if (!document.getElementById(article.id)) {
+      const existing = document.getElementById(article.id);
+      if (existing) {
+        existing.outerHTML = article.outerHTML;
+        const refreshed = document.getElementById(article.id);
+        if (refreshed) {
+          htmx.process(refreshed);
+          applyOwnerControls(refreshed);
+          const reactionBar = refreshed.querySelector('[id^="reactions-"]');
+          if (reactionBar) {
+            const msgId = reactionBar.id.replace('reactions-', '');
+            applyMyReactions(reactionBar, msgId);
+          }
+        }
+      } else {
         target.before(article);
         htmx.process(article);
         applyOwnerControls(article);
