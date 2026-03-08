@@ -91,6 +91,23 @@ func postMessage(t *testing.T, ts *testutil.TestServer, user model.User, room, t
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 }
 
+// patchMessage sends a PATCH /rooms/{id}/messages/{msgID} request to edit a message.
+func patchMessage(t *testing.T, ts *testutil.TestServer, user model.User, room, msgID, newText string) {
+	t.Helper()
+	cookie := ts.AuthCookie(t, user)
+	form := url.Values{"text": {newText}}
+	req, err := http.NewRequest("PATCH",
+		ts.Server.URL+"/rooms/"+room+"/messages/"+msgID,
+		strings.NewReader(form.Encode()))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
+
 // seedMessage inserts a message directly into Redis for setup purposes.
 func seedMessage(t *testing.T, ts *testutil.TestServer, user model.User, room, text string) model.Message {
 	t.Helper()

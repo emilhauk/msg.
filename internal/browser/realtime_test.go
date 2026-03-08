@@ -240,3 +240,101 @@ func TestFastResume_VisibilityChange(t *testing.T) {
 	}
 	assert.True(t, found, "message seeded during tab hide should appear within 250 ms of visibilitychange")
 }
+
+// TestCatchUp_StaleContentRefreshedOnResume verifies that doCatchUp() replaces
+// existing articles in-place when the tab becomes visible again, so that edits
+// and reaction changes that arrived while the tab was hidden are immediately
+// visible without a full page reload.
+//
+// Scenario:
+//  1. Alice opens the room; a message from Alice is visible.
+//  2. Alice reacts with 👍 — the SSE reaction event lands in her browser and
+//     populates __myReactions so the active state is locally tracked.
+//  3. The tab is "hidden" (visibilitychange event with document.hidden=true),
+//     closing both EventSource connections.
+//  4. While hidden: the message text is edited via PATCH, and Bob adds a 👎
+//     reaction — both changes are unknown to Alice's browser.
+//  5. The tab becomes "visible" again (visibilitychange with hidden=false),
+//     triggering doCatchUp().
+//  6. Assertions:
+//     - The message text reflects the edit.
+//     - Bob's 👎 reaction pill is present.
+//     - Alice's 👍 reaction pill still has the active class (applyMyReactions
+//       ran on the refreshed article).
+func TestCatchUp_StaleContentRefreshedOnResume(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping browser test in short mode")
+	}
+	const catchupRoom = "room-catchup-stale"
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: catchupRoom, Name: "Catch-Up Stale Room"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, catchupRoom, bob.ID)
+
+	msg := seedMessage(t, ts, alice, catchupRoom, "original text")
+
+	b := newBrowser(t)
+	page := authPage(t, b, ts, alice, catchupRoom)
+
+	// Wait for the message and both SSE connections to be established.
+	page.Timeout(5 * time.Second).MustElement("#msg-" + msg.ID)
+	time.Sleep(300 * time.Millisecond)
+
+	// Alice reacts with 👍 so __myReactions is populated in her browser.
+	postReaction(t, ts, alice, catchupRoom, msg.ID, "👍")
+
+	// Wait for the SSE reaction event to arrive and update __myReactions.
+	page.Timeout(5 * time.Second).MustElement(
+		fmt.Sprintf(`#reactions-%s .reaction-pill--active`, msg.ID),
+	)
+
+	// Simulate tab becoming hidden — closes both EventSource connections.
+	page.MustEval(`() => {
+		Object.defineProperty(document, 'hidden', { get: () => true, configurable: true });
+		document.dispatchEvent(new Event('visibilitychange'));
+	}`)
+
+	// While hidden: edit the message and add Bob's reaction.
+	patchMessage(t, ts, alice, catchupRoom, msg.ID, "updated text")
+	postReaction(t, ts, bob, catchupRoom, msg.ID, "👎")
+
+	// Simulate tab becoming visible — triggers doCatchUp().
+	page.MustEval(`() => {
+		Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+		document.dispatchEvent(new Event('visibilitychange'));
+	}`)
+
+	// Poll until the edited text appears (up to 3 s).
+	deadline := time.Now().Add(3 * time.Second)
+	var textContent string
+	for time.Now().Before(deadline) {
+		textContent = page.MustEval(fmt.Sprintf(
+			`() => document.querySelector('#text-%s')?.textContent ?? ''`, msg.ID,
+		)).Str()
+		if textContent == "updated text" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	assert.Equal(t, "updated text", textContent,
+		"catch-up should refresh the article with the edited message text")
+
+	// Bob's 👎 reaction pill must now be visible.
+	bobPill := page.Timeout(3 * time.Second).MustElement(
+		fmt.Sprintf(`#reactions-%s [data-emoji="👎"]`, msg.ID),
+	)
+	bobEmoji, err := bobPill.Attribute("data-emoji")
+	require.NoError(t, err)
+	assert.Equal(t, "👎", *bobEmoji, "Bob's reaction pill should appear after catch-up")
+
+	// Alice's 👍 pill must still carry the active class (applyMyReactions ran).
+	alicePill := page.Timeout(3 * time.Second).MustElement(
+		fmt.Sprintf(`#reactions-%s [data-emoji="👍"]`, msg.ID),
+	)
+	aliceClass, err := alicePill.Attribute("class")
+	require.NoError(t, err)
+	assert.Contains(t, *aliceClass, "reaction-pill--active",
+		"Alice's own reaction pill should remain active after catch-up refresh")
+}
