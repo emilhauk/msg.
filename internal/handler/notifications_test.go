@@ -240,6 +240,132 @@ func TestHandleRoomInactive(t *testing.T) {
 	assert.False(t, viewing, "viewing key should be cleared after /inactive")
 }
 
+func TestHandleRoomActive_BroadcastsOnTransition(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	// Subscribe to the room's pub/sub channel before sending the request.
+	sub := ts.Redis.Subscribe(context.Background(), testRoom)
+	defer sub.Close()
+	ch := sub.Channel()
+
+	// First heartbeat (not yet viewing) → should broadcast.
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/"+testRoom+"/active", nil)
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, alice.ID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast on first active heartbeat")
+	}
+
+	// Second heartbeat (already viewing) → should NOT broadcast.
+	req2, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/"+testRoom+"/active", nil)
+	req2.AddCookie(cookie)
+	resp2, err := http.DefaultClient.Do(req2)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp2.StatusCode)
+
+	select {
+	case <-ch:
+		t.Fatal("should not broadcast on subsequent heartbeat when already viewing")
+	case <-time.After(200 * time.Millisecond):
+		// Expected: no broadcast.
+	}
+}
+
+func TestHandleRoomInactive_Broadcasts(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	// Seed viewing key.
+	require.NoError(t, ts.Redis.SetRoomViewing(context.Background(), alice.ID, testRoom))
+
+	sub := ts.Redis.Subscribe(context.Background(), testRoom)
+	defer sub.Close()
+	ch := sub.Channel()
+
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/"+testRoom+"/inactive", nil)
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, alice.ID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast on inactive")
+	}
+}
+
+func TestHandleSetMute_Broadcasts(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	sub := ts.Redis.Subscribe(context.Background(), testRoom)
+	defer sub.Close()
+	ch := sub.Channel()
+
+	body := `{"duration":"1h"}`
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/settings/mute", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, `"muted":true`)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast on mute")
+	}
+}
+
+func TestHandleClearMute_Broadcasts(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	// Seed a mute.
+	require.NoError(t, ts.Redis.SetMute(context.Background(), alice.ID, time.Hour))
+
+	sub := ts.Redis.Subscribe(context.Background(), testRoom)
+	defer sub.Close()
+	ch := sub.Channel()
+
+	req, _ := http.NewRequest("DELETE", ts.Server.URL+"/settings/mute", nil)
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, `"muted":false`)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast on clear mute")
+	}
+}
+
 func TestHandleRoomMembers(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})

@@ -84,6 +84,37 @@ func TestHandleSSE_PubSubRelay(t *testing.T) {
 	assert.Equal(t, "", lines[2])
 }
 
+func TestHandleSSE_MemberStatusRelay(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.Server.URL+"/rooms/"+testRoom+"/events", nil)
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	readSSELines(t, scanner, 5) // drain initial events
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Publish a memberstatus event directly to Redis.
+	require.NoError(t, ts.Redis.Publish(ctx, testRoom, `memberstatus:{"userId":"user-alice","isMember":true,"muted":false,"muteUntil":null}`))
+
+	lines := readSSELines(t, scanner, 3)
+	assert.Equal(t, "event: memberstatus", lines[0])
+	assert.Contains(t, lines[1], `"userId":"user-alice"`)
+	assert.Equal(t, "", lines[2])
+}
+
 // readSSELines reads exactly n lines from scanner, failing the test on timeout.
 func readSSELines(t *testing.T, scanner *bufio.Scanner, n int) []string {
 	t.Helper()

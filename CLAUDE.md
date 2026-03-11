@@ -173,6 +173,7 @@ All payloads published to `rooms:{id}:events` use a prefix to identify type:
 "reaction:<json>"        → event: reaction  (JS: JSON { msgId, reactorId, reactedEmojis, html })
 "delete:<msgId>"         → event: delete    (JS: remove #msg-<msgId>)
 "edit:<msgId>:<html>"    → event: edit      (JS: replace #msg-<msgId> innerHTML)
+"memberstatus:<json>"    → event: memberstatus  (HTMX: re-fetch panel; JS: update own bell)
 ```
 
 On connect the server also sends:
@@ -188,7 +189,7 @@ Used by the client to detect deploys and trigger a reload.
 The room page opens **two** `EventSource` connections to the same `/rooms/{id}/events` endpoint:
 
 1. **HTMX-managed** (`sse-connect` on `<section>`): handles `event: message` only via `sse-swap`.
-2. **Vanilla JS-managed** (in `room.html` `<script>`): handles `unfurl`, `reaction`, `delete`, `edit`, and `version`.
+2. **Vanilla JS-managed** (in `room.html` `<script>`): handles `unfurl`, `reaction`, `delete`, `edit`, `memberstatus`, and `version`.
 
 Rationale: HTMX's SSE extension silently drops event types it is not `sse-swap`-ing.
 

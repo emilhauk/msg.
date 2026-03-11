@@ -35,6 +35,15 @@ if (bc) {
     if (e.data && e.data.type === 'heartbeat') {
       lastHeartbeats[e.data.tabId] = e.data.ts;
     }
+    if (e.data && e.data.type === 'mute') {
+      if (e.data.muted) {
+        setBellState('muted', e.data.until);
+        if (unmuteBtn) unmuteBtn.hidden = false;
+      } else {
+        setBellState('on');
+        if (unmuteBtn) unmuteBtn.hidden = true;
+      }
+    }
   };
 }
 
@@ -135,6 +144,7 @@ if (pwaGuide) {
   });
 }
 
+window.setBellState = setBellState;
 function setBellState(state, muteUntil) {
   if (!bell) return;
   bell.dataset.state = state;
@@ -292,6 +302,7 @@ if (popover) {
         setBellState('muted', until);
         if (unmuteBtn) unmuteBtn.hidden = false;
         if (popover) popover.hidden = true;
+        if (bc) bc.postMessage({ type: 'mute', muted: true, until: until });
       });
     });
   });
@@ -304,6 +315,7 @@ if (unmuteBtn) {
       setBellState('on');
       unmuteBtn.hidden = true;
       if (popover) popover.hidden = true;
+      if (bc) bc.postMessage({ type: 'mute', muted: false });
     });
   });
 }

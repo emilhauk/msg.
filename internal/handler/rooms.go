@@ -236,6 +236,7 @@ func (h *RoomsHandler) HandleAddAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to add member", http.StatusInternalServerError)
 		return
 	}
+	_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, inviteeID, true)
 	// Redirect back to the panel so HTMX refreshes it.
 	http.Redirect(w, r, "/rooms/"+roomID+"/panel", http.StatusSeeOther)
 }
@@ -302,6 +303,7 @@ func (h *RoomsHandler) HandleLeave(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to leave room", http.StatusInternalServerError)
 			return
 		}
+		_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, user.ID, false)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -330,5 +332,6 @@ func (h *RoomsHandler) HandleJoin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to join room", http.StatusInternalServerError)
 		return
 	}
+	_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, user.ID, true)
 	http.Redirect(w, r, "/rooms/"+roomID, http.StatusSeeOther)
 }

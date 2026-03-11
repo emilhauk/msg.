@@ -141,6 +141,38 @@ function attachEsListeners(target) {
     }
   });
 
+  target.addEventListener('memberstatus', (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch (_) { return; }
+
+    // Mark the panel as stale so it re-fetches member list.
+    if (typeof window.__markPanelStale === 'function') window.__markPanelStale();
+
+    // Update the current user's own bell icon across devices.
+    if (data.userId === window.__currentUserID && typeof window.setBellState === 'function') {
+      if (data.muted) {
+        window.setBellState('muted', data.muteUntil);
+        if (data.muteUntil && data.muteUntil !== 'forever') {
+          clearTimeout(window.__muteTimer);
+          const ms = new Date(data.muteUntil).getTime() - Date.now();
+          if (ms > 0) {
+            window.__muteTimer = setTimeout(() => {
+              window.setBellState('on');
+              const unmuteBtn = document.getElementById('notif-unmute');
+              if (unmuteBtn) unmuteBtn.hidden = true;
+              if (typeof window.__markPanelStale === 'function') window.__markPanelStale();
+            }, ms);
+          }
+        }
+      } else {
+        window.setBellState('on');
+        clearTimeout(window.__muteTimer);
+        const unmuteBtn = document.getElementById('notif-unmute');
+        if (unmuteBtn) unmuteBtn.hidden = true;
+      }
+    }
+  });
+
   target.addEventListener('reaction', (e) => {
     // data is a JSON object: { msgId, reactorId, reactedEmojis, html }
     let ev;

@@ -131,7 +131,7 @@
     {{/* Content is loaded lazily via HTMX on first open. */}}
     <aside class="room-panel" id="room-panel" aria-label="Room settings"
            hx-get="/rooms/{{.Data.Room.ID}}/panel"
-           hx-trigger="open-panel once from:body"
+           hx-trigger="open-panel once from:body, refresh-panel"
            hx-swap="innerHTML"></aside>
 
     <div class="message-list" id="message-list">
@@ -268,6 +268,22 @@
   var roomID = '{{.Data.Room.ID}}';
   var CHIME_URL = '/static/chime.mp3?v={{$.BuildVersion}}';
 
+  // ---- Panel stale tracking for memberstatus SSE events ----
+  var __panelStale = false;
+  var __panelRefreshTimer = null;
+  function __markPanelStale() {
+    __panelStale = true;
+    var panel = document.getElementById('room-panel');
+    var isOpen = document.getElementById('room-layout') && document.getElementById('room-layout').classList.contains('room-layout--panel-open');
+    if (isOpen && panel) {
+      clearTimeout(__panelRefreshTimer);
+      __panelRefreshTimer = setTimeout(function () {
+        htmx.trigger(panel, 'refresh-panel');
+        __panelStale = false;
+      }, 1500);
+    }
+  }
+
   // ---- Room panel toggle (right: members/settings) ----
   (function () {
     var layout = document.getElementById('room-layout');
@@ -280,6 +296,9 @@
       if (open && !panelLoaded) {
         panelLoaded = true;
         document.body.dispatchEvent(new Event('open-panel'));
+      } else if (open && __panelStale) {
+        htmx.trigger(document.getElementById('room-panel'), 'refresh-panel');
+        __panelStale = false;
       }
     });
 

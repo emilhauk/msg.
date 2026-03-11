@@ -1037,6 +1037,59 @@ func (c *Client) IsRoomViewing(ctx context.Context, userID, roomID string) (bool
 }
 
 // ---------------------------------------------------------------------------
+// Member status broadcast
+// ---------------------------------------------------------------------------
+
+// memberStatusPayload is the JSON payload for memberstatus SSE events.
+type memberStatusPayload struct {
+	UserID   string  `json:"userId"`
+	IsMember bool    `json:"isMember"`
+	Muted    bool    `json:"muted"`
+	MuteUntil *string `json:"muteUntil"`
+}
+
+// BroadcastMemberStatus publishes a memberstatus event for a user to a room's SSE channel.
+func (c *Client) BroadcastMemberStatus(ctx context.Context, roomID, userID string, isMember bool) error {
+	payload := memberStatusPayload{
+		UserID:   userID,
+		IsMember: isMember,
+	}
+	if isMember {
+		muted, _ := c.IsMuted(ctx, userID)
+		payload.Muted = muted
+		if muted {
+			until, _, _ := c.GetMuteUntil(ctx, userID)
+			if until.Year() == 9999 {
+				s := "forever"
+				payload.MuteUntil = &s
+			} else if !until.IsZero() {
+				s := until.UTC().Format(time.RFC3339)
+				payload.MuteUntil = &s
+			}
+		}
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("redis: marshal member status: %w", err)
+	}
+	return c.Publish(ctx, roomID, "memberstatus:"+string(data))
+}
+
+// BroadcastMemberStatusAllRooms publishes a memberstatus event for a user to every room they have access to.
+func (c *Client) BroadcastMemberStatusAllRooms(ctx context.Context, userID string) error {
+	rooms, err := c.GetAccessibleRooms(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("redis: get accessible rooms for broadcast: %w", err)
+	}
+	for _, room := range rooms {
+		if err := c.BroadcastMemberStatus(ctx, room.ID, userID, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Unfurls
 // ---------------------------------------------------------------------------
 

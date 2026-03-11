@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emilhauk/msg/internal/model"
 	"github.com/emilhauk/msg/internal/testutil"
@@ -322,6 +323,102 @@ func TestHandleAddAccess_Forbidden(t *testing.T) {
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestHandleAddAccess_BroadcastsMemberStatus(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: "room1", Name: "Room 1"})
+	ts.SeedRoom(t, model.Room{ID: "room2", Name: "Room 2"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, "room1", alice.ID)
+	ts.GrantAccess(t, "room1", bob.ID)
+	ts.GrantAccess(t, "room2", alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	sub := ts.Redis.Subscribe(context.Background(), "room2")
+	defer sub.Close()
+	ch := sub.Channel()
+
+	client := testutil.NoRedirectClient()
+	form := url.Values{"user_id": {bob.ID}}
+	req, _ := http.NewRequest("POST", ts.Server.URL+"/rooms/room2/access", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, bob.ID)
+		assert.Contains(t, msg.Payload, `"isMember":true`)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast when adding member")
+	}
+}
+
+func TestHandleLeave_BroadcastsMemberStatus(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
+	ts.GrantAccess(t, testRoom, alice.ID)
+	ts.GrantAccess(t, testRoom, bob.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	sub := ts.Redis.Subscribe(context.Background(), testRoom)
+	defer sub.Close()
+	ch := sub.Channel()
+
+	client := testutil.NoRedirectClient()
+	req, _ := http.NewRequest("DELETE", ts.Server.URL+"/rooms/"+testRoom+"/leave", nil)
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, alice.ID)
+		assert.Contains(t, msg.Payload, `"isMember":false`)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast when leaving room")
+	}
+}
+
+func TestHandleJoin_BroadcastsMemberStatus(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, approver.ID)
+	token, err := ts.Redis.CreateInviteToken(context.Background(), testRoom, approver.ID)
+	require.NoError(t, err)
+
+	sub := ts.Redis.Subscribe(context.Background(), testRoom)
+	defer sub.Close()
+	ch := sub.Channel()
+
+	cookie := ts.AuthCookie(t, bob)
+	client := testutil.NoRedirectClient()
+	req, _ := http.NewRequest("GET", ts.Server.URL+"/join/"+token, nil)
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+
+	select {
+	case msg := <-ch:
+		assert.Contains(t, msg.Payload, "memberstatus:")
+		assert.Contains(t, msg.Payload, bob.ID)
+		assert.Contains(t, msg.Payload, `"isMember":true`)
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected memberstatus broadcast when joining via invite")
+	}
 }
 
 // ---------------------------------------------------------------------------

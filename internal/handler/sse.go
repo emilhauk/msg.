@@ -23,6 +23,7 @@ type SSEHandler struct {
 //	"reaction:<json>"       → event: reaction, data: <json>
 //	"delete:<id>"           → event: delete,   data: <id>
 //	"edit:<id>:<html>"      → event: edit,     data: <id>\n<html>  (two data lines)
+//	"memberstatus:<json>"   → event: memberstatus, data: <json>
 //
 // For unfurl and edit the msgID and HTML are sent as separate SSE data lines so
 // that the newline is the unambiguous separator on the client side. Message IDs
@@ -111,7 +112,11 @@ func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 				// The client splits on the first \n (which SSE joins from multiple data: fields).
 				fmt.Fprintf(w, "event: edit\ndata: %s\ndata: %s\n\n", msgID, escapeSSE(html))
 				flusher.Flush()
-			case strings.HasPrefix(payload, "redirect:"):
+			case strings.HasPrefix(payload, "memberstatus:"):
+			jsonData := strings.TrimPrefix(payload, "memberstatus:")
+			fmt.Fprintf(w, "event: memberstatus\ndata: %s\n\n", jsonData)
+			flusher.Flush()
+		case strings.HasPrefix(payload, "redirect:"):
 				url := strings.TrimPrefix(payload, "redirect:")
 				fmt.Fprintf(w, "event: redirect\ndata: %s\n\n", url)
 				flusher.Flush()

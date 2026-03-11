@@ -58,6 +58,7 @@ func (h *NotificationsHandler) HandleSubscribe(w http.ResponseWriter, r *http.Re
 		http.Error(w, "failed to save subscription", http.StatusInternalServerError)
 		return
 	}
+	_ = h.Redis.BroadcastMemberStatusAllRooms(r.Context(), user.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -77,6 +78,7 @@ func (h *NotificationsHandler) HandleUnsubscribe(w http.ResponseWriter, r *http.
 		http.Error(w, "failed to remove subscription", http.StatusInternalServerError)
 		return
 	}
+	_ = h.Redis.BroadcastMemberStatusAllRooms(r.Context(), user.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -114,6 +116,7 @@ func (h *NotificationsHandler) HandleSetMute(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "failed to set mute", http.StatusInternalServerError)
 		return
 	}
+	_ = h.Redis.BroadcastMemberStatusAllRooms(r.Context(), user.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -125,6 +128,7 @@ func (h *NotificationsHandler) HandleClearMute(w http.ResponseWriter, r *http.Re
 		http.Error(w, "failed to clear mute", http.StatusInternalServerError)
 		return
 	}
+	_ = h.Redis.BroadcastMemberStatusAllRooms(r.Context(), user.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -165,8 +169,15 @@ func (h *NotificationsHandler) HandleRoomActive(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Check if this is a transition from inactive → active (avoid broadcasting on every heartbeat).
+	wasViewing, _ := h.Redis.IsRoomViewing(r.Context(), user.ID, roomID)
+
 	_ = h.Redis.SetRoomLastActive(r.Context(), user.ID, roomID)
 	_ = h.Redis.SetRoomViewing(r.Context(), user.ID, roomID)
+
+	if !wasViewing {
+		_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, user.ID, true)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -183,6 +194,7 @@ func (h *NotificationsHandler) HandleRoomInactive(w http.ResponseWriter, r *http
 	}
 
 	_ = h.Redis.ClearRoomViewing(r.Context(), user.ID, roomID)
+	_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, user.ID, true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
