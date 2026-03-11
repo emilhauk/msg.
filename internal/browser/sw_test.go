@@ -10,6 +10,7 @@ import (
 
 	"github.com/emilhauk/msg/internal/model"
 	"github.com/emilhauk/msg/internal/testutil"
+	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,4 +143,102 @@ func TestSW_PushEvent(t *testing.T) {
 	val, err = page.Eval(`() => document.readyState`)
 	require.NoError(t, err)
 	assert.Equal(t, "complete", val.Value.String(), "page should still be ready after push delivery")
+}
+
+// TestSW_PostMessageNavigate verifies the client-side message listener that
+// handles the iOS fallback: when the SW sends { type: 'navigate', url }, the
+// page navigates to the target URL if it differs from the current path.
+func TestSW_PostMessageNavigate(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping browser test in short mode")
+	}
+
+	ts := testutil.NewTestServer(t)
+	roomA := "room-sw-nav-a"
+	roomB := "room-sw-nav-b"
+	ts.SeedRoom(t, model.Room{ID: roomA, Name: "Room A"})
+	ts.SeedRoom(t, model.Room{ID: roomB, Name: "Room B"})
+
+	b := newBrowser(t)
+	page := authPage(t, b, ts, alice, roomA)
+
+	// Wait for SW to activate and claim the page.
+	time.Sleep(500 * time.Millisecond)
+
+	val, err := page.Eval(`() => !!navigator.serviceWorker.controller`)
+	require.NoError(t, err)
+	if !val.Value.Bool() {
+		t.Skip("service worker not controlling the page — skipping navigate test")
+	}
+
+	// Verify we start on room A.
+	assert.Contains(t, page.MustInfo().URL, "/rooms/"+roomA)
+
+	// Simulate the SW sending a postMessage navigate event. In production this
+	// comes from the SW's notificationclick handler; here we dispatch a
+	// synthetic MessageEvent on navigator.serviceWorker to exercise the
+	// client-side listener.
+	targetURL := "/rooms/" + roomB
+	_, err = page.Eval(`(url) => {
+		navigator.serviceWorker.dispatchEvent(
+			new MessageEvent('message', { data: { type: 'navigate', url: url } })
+		);
+	}`, targetURL)
+	require.NoError(t, err)
+
+	// Wait for navigation to complete.
+	page.MustWaitRequestIdle()
+	err = rod.Try(func() {
+		page.Timeout(3 * time.Second).MustWaitLoad()
+	})
+	require.NoError(t, err, "page should load after navigate")
+
+	// Verify we arrived at room B.
+	assert.Contains(t, page.MustInfo().URL, "/rooms/"+roomB)
+}
+
+// TestSW_PostMessageNavigate_SameRoom verifies that the navigate listener does
+// NOT reload/navigate when the target URL matches the current page.
+func TestSW_PostMessageNavigate_SameRoom(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping browser test in short mode")
+	}
+
+	ts := testutil.NewTestServer(t)
+	roomA := "room-sw-nav-same"
+	ts.SeedRoom(t, model.Room{ID: roomA, Name: "Room Same"})
+
+	b := newBrowser(t)
+	page := authPage(t, b, ts, alice, roomA)
+
+	time.Sleep(500 * time.Millisecond)
+
+	val, err := page.Eval(`() => !!navigator.serviceWorker.controller`)
+	require.NoError(t, err)
+	if !val.Value.Bool() {
+		t.Skip("service worker not controlling the page — skipping navigate test")
+	}
+
+	// Mark the page to verify it wasn't reloaded.
+	_, err = page.Eval(`() => { window.__navTestMarker = true; }`)
+	require.NoError(t, err)
+
+	// Send a navigate message for the SAME room — should be a no-op.
+	targetURL := "/rooms/" + roomA
+	_, err = page.Eval(`(url) => {
+		navigator.serviceWorker.dispatchEvent(
+			new MessageEvent('message', { data: { type: 'navigate', url: url } })
+		);
+	}`, targetURL)
+	require.NoError(t, err)
+
+	// Give it a moment to (not) navigate.
+	time.Sleep(300 * time.Millisecond)
+
+	// The marker should still be present — the page was not reloaded.
+	val, err = page.Eval(`() => window.__navTestMarker === true`)
+	require.NoError(t, err)
+	assert.True(t, val.Value.Bool(), "page should NOT have navigated/reloaded for the same room")
 }

@@ -63,6 +63,9 @@ self.addEventListener('notificationclick', (event) => {
           if ('navigate' in client) {
             client.navigate(targetURL);
           }
+          // Also postMessage so the client can self-navigate — client.navigate()
+          // silently fails on iOS WebKit in standalone PWA mode.
+          client.postMessage({ type: 'navigate', url: targetURL });
           return;
         }
       }

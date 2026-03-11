@@ -126,6 +126,23 @@ if (needsPWAGuide) {
 }
 
 // ------------------------------------------------------------------
+// SW postMessage navigation (iOS fallback)
+// client.navigate() silently fails on iOS WebKit in standalone PWA mode.
+// The SW sends { type: 'navigate', url } after focus+navigate; if the URL
+// differs from the current page, we navigate via window.location.
+// ------------------------------------------------------------------
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'navigate' && event.data.url) {
+      const target = new URL(event.data.url, window.location.origin);
+      if (target.pathname !== window.location.pathname) {
+        window.location.href = target.href;
+      }
+    }
+  });
+}
+
+// ------------------------------------------------------------------
 // Bell UI state
 // ------------------------------------------------------------------
 if (pwaGuide) {
