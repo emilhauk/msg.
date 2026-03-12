@@ -383,6 +383,11 @@ func (h *MessagesHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg.Kind != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	if msg.UserID != user.ID {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
@@ -433,6 +438,11 @@ func (h *MessagesHandler) HandleEdit(w http.ResponseWriter, r *http.Request) {
 	msg, err := h.Redis.GetMessage(r.Context(), msgID)
 	if err != nil || msg == nil {
 		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
+
+	if msg.Kind != "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -489,6 +499,11 @@ func hydrateMessages(ctx context.Context, redis *redisclient.Client, msgs []*mod
 		}
 		m.User = u
 
+		// System messages have no unfurls or reactions.
+		if m.Kind != "" {
+			continue
+		}
+
 		if rawURL := urlRe.FindString(m.Text); rawURL != "" {
 			unfurl, err := redis.GetUnfurl(ctx, normalizeURL(rawURL))
 			if err == nil {
@@ -539,6 +554,31 @@ func (h *MessagesHandler) fetchAndPublishUnfurl(rawURL, msgID, roomID string) {
 type unfurlData struct {
 	Unfurl *model.Unfurl
 	MsgID  string
+}
+
+// saveAndBroadcastSystemMessage creates a system message (e.g. "user joined")
+// and publishes it to the room's SSE channel. Best-effort: callers may ignore errors.
+func saveAndBroadcastSystemMessage(ctx context.Context, rdb *redisclient.Client, renderer *tmpl.Renderer, roomID string, user *model.User, text string) error {
+	now := time.Now()
+	msgID := fmt.Sprintf("%d-%s", now.UnixMilli(), user.ID)
+	msg := model.Message{
+		ID:          msgID,
+		RoomID:      roomID,
+		UserID:      user.ID,
+		Text:        text,
+		Kind:        "system",
+		CreatedAt:   now,
+		CreatedAtMS: strconv.FormatInt(now.UnixMilli(), 10),
+		User:        user,
+	}
+	if err := rdb.SaveMessage(ctx, msg); err != nil {
+		return err
+	}
+	html, err := renderer.RenderString("message.html", model.MessageView{Message: &msg, CurrentUserID: ""})
+	if err != nil {
+		return err
+	}
+	return rdb.Publish(ctx, roomID, "msg:"+html)
 }
 
 func normalizeURL(raw string) string {

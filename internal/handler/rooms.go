@@ -237,6 +237,9 @@ func (h *RoomsHandler) HandleAddAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, inviteeID, true)
+	if invitee, err := h.Redis.GetUser(r.Context(), inviteeID); err == nil && invitee != nil {
+		_ = saveAndBroadcastSystemMessage(r.Context(), h.Redis, h.Renderer, roomID, invitee, invitee.Name+" was added")
+	}
 	// Redirect back to the panel so HTMX refreshes it.
 	http.Redirect(w, r, "/rooms/"+roomID+"/panel", http.StatusSeeOther)
 }
@@ -304,6 +307,7 @@ func (h *RoomsHandler) HandleLeave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, user.ID, false)
+		_ = saveAndBroadcastSystemMessage(r.Context(), h.Redis, h.Renderer, roomID, user, user.Name+" left")
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -333,5 +337,6 @@ func (h *RoomsHandler) HandleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.Redis.BroadcastMemberStatus(r.Context(), roomID, user.ID, true)
+	_ = saveAndBroadcastSystemMessage(r.Context(), h.Redis, h.Renderer, roomID, user, user.Name+" joined")
 	http.Redirect(w, r, "/rooms/"+roomID, http.StatusSeeOther)
 }

@@ -141,7 +141,7 @@ rooms:{id}                              Hash    id, name
 rooms:{id}:messages                     ZSet    message IDs scored by created_at (unix ms); cleaned on write
 rooms:{id}:members                      ZSet    user IDs scored by last-post time (unix ms); no TTL
 rooms:{id}:events                       Pub/Sub SSE fan-out channel
-messages:{msg-id}                       Hash    id, room_id, user_id, text, attachments (JSON), created_at (ms); TTL 30 days
+messages:{msg-id}                       Hash    id, room_id, user_id, text, kind, attachments (JSON), created_at (ms); TTL 30 days
 reactions:{msg-id}                      Hash    emoji → count; TTL 30 days
 reactions:{msg-id}:users                Hash    "{emoji}\x00{userID}" → "1"; TTL 30 days
 reactions:{msg-id}:order                ZSet    emoji members scored by unix-ms of first-use; TTL 30 days
@@ -201,6 +201,24 @@ Rationale: HTMX's SSE extension silently drops event types it is not `sse-swap`-
 {unixMillis}-{userUUID}
 ```
 e.g. `1712345678901-550e8400-e29b-41d4-a716-446655440000`. The user portion is always a UUID v4 — never a provider-specific identifier.
+
+---
+
+## Message Kind
+
+The `kind` field on a message hash distinguishes message types:
+
+| Kind | Meaning |
+|---|---|
+| `""` (empty) | Regular user message (default, backward compatible) |
+| `"system"` | System notification (join/leave/added) |
+
+System messages:
+- Are created by `saveAndBroadcastSystemMessage()` in `internal/handler/messages.go`
+- Rendered as centered text with horizontal rules (`.message--system` in CSS)
+- Cannot be edited or deleted (handlers return 403)
+- Skip unfurl and reaction hydration
+- Preserve the real `UserID` for attribution; `Text` carries the display string
 
 ---
 

@@ -511,6 +511,7 @@ func (c *Client) SaveMessage(ctx context.Context, msg model.Message) error {
 		"room_id", msg.RoomID,
 		"user_id", msg.UserID,
 		"text", msg.Text,
+		"kind", msg.Kind,
 		"created_at", msStr,
 		"attachments", msg.AttachmentsJSON,
 	)
@@ -537,6 +538,7 @@ func (c *Client) GetMessage(ctx context.Context, id string) (*model.Message, err
 		RoomID:          vals["room_id"],
 		UserID:          vals["user_id"],
 		Text:            vals["text"],
+		Kind:            vals["kind"],
 		CreatedAtMS:     vals["created_at"],
 		CreatedAt:       time.UnixMilli(ms),
 		AttachmentsJSON: vals["attachments"],

@@ -1,4 +1,12 @@
 {{define "message.html"}}
+{{if eq .Kind "system"}}
+<article class="message message--system" id="msg-{{.ID}}" data-author-id="{{.UserID}}">
+  <span class="message--system__text">{{.Text}}</span>
+  <time class="message--system__time" datetime="{{.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}">
+    {{.CreatedAt.Format "15:04"}}
+  </time>
+</article>
+{{else}}
 <article class="message" id="msg-{{.ID}}" data-author-id="{{.UserID}}">
   <div class="message__avatar">
     {{if .User}}
@@ -96,4 +104,5 @@
     {{template "reactions.html" (reactionData .ID .RoomID .Reactions)}}
   </div>
 </article>
+{{end}}
 {{end}}

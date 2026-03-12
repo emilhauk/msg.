@@ -24,6 +24,7 @@ type Message struct {
 	RoomID    string    `redis:"room_id"`
 	UserID    string    `redis:"user_id"`
 	Text      string    `redis:"text"`
+	Kind      string    `redis:"kind"` // "" = regular message, "system" = join/leave notification
 	CreatedAt time.Time `redis:"-"`
 	// CreatedAtMS is stored in Redis as millisecond unix timestamp string.
 	CreatedAtMS string `redis:"created_at"`
