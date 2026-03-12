@@ -69,9 +69,11 @@ function shouldNotifyInTab() {
 }
 
 document.body.addEventListener('htmx:sseMessage', () => {
-  if (shouldNotifyInTab()) {
-    playChime();
-  }
+  if (!shouldNotifyInTab()) return;
+  const target = document.getElementById('sse-message-target');
+  const msg = target?.previousElementSibling;
+  if (msg && msg.dataset.authorId === window.__currentUserID) return;
+  playChime();
 });
 
 // ------------------------------------------------------------------
