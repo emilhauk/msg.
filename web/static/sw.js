@@ -16,6 +16,19 @@ self.addEventListener('push', (event) => {
     payload = { title: 'New message', body: event.data.text() };
   }
 
+  // Data-only "clear" push: dismiss notifications for the given tag.
+  if (payload.action === 'clear') {
+    const tag = payload.tag;
+    if (tag) {
+      event.waitUntil(
+        self.registration.getNotifications({ tag }).then((notifications) => {
+          for (const n of notifications) n.close();
+        }),
+      );
+    }
+    return;
+  }
+
   const title = payload.title || 'New message';
   const options = {
     body: payload.body || '',
@@ -75,6 +88,18 @@ self.addEventListener('notificationclick', (event) => {
       }
     }),
   );
+});
+
+// ---- Message from client ------------------------------------------------
+// Handles postMessage from tabs (e.g. clear notifications on same device).
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'clear-notifications' && event.data.tag) {
+    event.waitUntil(
+      self.registration.getNotifications({ tag: event.data.tag }).then((notifications) => {
+        for (const n of notifications) n.close();
+      }),
+    );
+  }
 });
 
 // ---- Install / Activate -----------------------------------------------

@@ -12,8 +12,18 @@ function leave() {
   navigator.sendBeacon(inactiveURL);
 }
 
+function clearLocalNotifications() {
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'clear-notifications',
+      tag: `msg-${window.roomID}`,
+    });
+  }
+}
+
 function startHeartbeat() {
   ping();
+  clearLocalNotifications();
   clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(ping, 60 * 1000);
 }

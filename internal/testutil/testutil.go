@@ -137,6 +137,7 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 	sseHandler := &handler.SSEHandler{Redis: rc, Version: "test"}
 	notificationsHandler := &handler.NotificationsHandler{
 		Redis:          rc,
+		Push:           push,
 		VAPIDPublicKey: "test-vapid-public-key",
 	}
 
