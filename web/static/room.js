@@ -1,6 +1,7 @@
 import '/static/room/owner-controls.js';
 import '/static/room/scroll.js';
 import '/static/room/textarea.js';
+import '/static/room/draft.js';
 import '/static/room/upload.js';
 import '/static/room/autocomplete.js';
 import '/static/room/reactions.js';
