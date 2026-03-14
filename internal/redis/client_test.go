@@ -447,3 +447,126 @@ func TestReactionOrdering(t *testing.T) {
 		assert.Equal(t, []string{"👍", "❤️", "🚀", "🎉"}, emojis2, "re-added emoji should appear after 🚀")
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Unread counts
+// ---------------------------------------------------------------------------
+
+func TestGetUnreadCounts(t *testing.T) {
+	rc, mr := newClient(t)
+	ctx := context.Background()
+
+	userID := "user-1"
+	roomA := model.Room{ID: "room-a", Name: "A"}
+	roomB := model.Room{ID: "room-b", Name: "B"}
+
+	require.NoError(t, rc.SeedRoom(ctx, roomA))
+	require.NoError(t, rc.SeedRoom(ctx, roomB))
+
+	// Use recent timestamps so SaveMessage's 30-day eviction doesn't remove them.
+	now := time.Now().UnixMilli()
+
+	// Helper: save a message at now + offset ms.
+	saveAt := func(roomID string, offset int64) {
+		ms := now + offset
+		msg := model.Message{
+			ID:          fmt.Sprintf("%d-%s", ms, userID),
+			RoomID:      roomID,
+			UserID:      userID,
+			Text:        "hello",
+			CreatedAtMS: fmt.Sprintf("%d", ms),
+		}
+		require.NoError(t, rc.SaveMessage(ctx, msg))
+	}
+
+	// Seed messages in room-a at now+1000, now+2000, now+3000.
+	saveAt("room-a", 1000)
+	saveAt("room-a", 2000)
+	saveAt("room-a", 3000)
+
+	// Seed messages in room-b at now+1500, now+2500.
+	saveAt("room-b", 1500)
+	saveAt("room-b", 2500)
+
+	t.Run("no last_active returns all messages as unread", func(t *testing.T) {
+		rooms := []*model.Room{{ID: "room-a"}, {ID: "room-b"}}
+		require.NoError(t, rc.GetUnreadCounts(ctx, userID, rooms))
+		assert.Equal(t, 3, rooms[0].UnreadCount)
+		assert.Equal(t, 2, rooms[1].UnreadCount)
+	})
+
+	t.Run("last_active filters correctly", func(t *testing.T) {
+		// Set last_active for room-a at now+2000 → message at now+3000 is unread (count=1).
+		mr.Set("users:"+userID+":rooms:room-a:last_active", fmt.Sprintf("%d", now+2000))
+
+		// Set last_active for room-b at now+2500 → nothing after → count=0.
+		mr.Set("users:"+userID+":rooms:room-b:last_active", fmt.Sprintf("%d", now+2500))
+
+		rooms := []*model.Room{{ID: "room-a"}, {ID: "room-b"}}
+		require.NoError(t, rc.GetUnreadCounts(ctx, userID, rooms))
+		assert.Equal(t, 1, rooms[0].UnreadCount)
+		assert.Equal(t, 0, rooms[1].UnreadCount)
+	})
+
+	t.Run("empty rooms slice is a no-op", func(t *testing.T) {
+		require.NoError(t, rc.GetUnreadCounts(ctx, userID, nil))
+	})
+}
+
+// ---------------------------------------------------------------------------
+// User-level Pub/Sub
+// ---------------------------------------------------------------------------
+
+func TestPublishToUser(t *testing.T) {
+	rc, _ := newClient(t)
+	ctx := context.Background()
+
+	sub := rc.SubscribeUser(ctx, "user-1")
+	defer sub.Close()
+	ch := sub.Channel()
+
+	// Allow subscription to register.
+	time.Sleep(50 * time.Millisecond)
+
+	require.NoError(t, rc.PublishToUser(ctx, "user-1", `unread:{"roomId":"room-a"}`))
+
+	select {
+	case msg := <-ch:
+		assert.Equal(t, `unread:{"roomId":"room-a"}`, msg.Payload)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for user pub/sub message")
+	}
+}
+
+func TestSubscribeUser_IsolatedChannels(t *testing.T) {
+	rc, _ := newClient(t)
+	ctx := context.Background()
+
+	sub1 := rc.SubscribeUser(ctx, "user-1")
+	defer sub1.Close()
+	ch1 := sub1.Channel()
+
+	sub2 := rc.SubscribeUser(ctx, "user-2")
+	defer sub2.Close()
+	ch2 := sub2.Channel()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Publish to user-1 only.
+	require.NoError(t, rc.PublishToUser(ctx, "user-1", "hello"))
+
+	select {
+	case msg := <-ch1:
+		assert.Equal(t, "hello", msg.Payload)
+	case <-time.After(2 * time.Second):
+		t.Fatal("user-1 should have received the message")
+	}
+
+	// user-2 should NOT receive anything.
+	select {
+	case msg := <-ch2:
+		t.Fatalf("user-2 should not receive messages for user-1, got: %s", msg.Payload)
+	case <-time.After(100 * time.Millisecond):
+		// expected
+	}
+}

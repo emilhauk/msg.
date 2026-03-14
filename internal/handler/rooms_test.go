@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -70,6 +71,88 @@ func TestHandleRoom_Forbidden(t *testing.T) {
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// ---------------------------------------------------------------------------
+// Unread counts in sidebar
+// ---------------------------------------------------------------------------
+
+func TestHandleRoom_UnreadBadge(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+
+	// Two rooms: alice has access to both.
+	ts.SeedRoom(t, model.Room{ID: "room-a", Name: "Room A"})
+	ts.SeedRoom(t, model.Room{ID: "room-b", Name: "Room B"})
+	ts.GrantAccess(t, "room-a", alice.ID)
+	ts.GrantAccess(t, "room-b", alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	now := time.Now()
+
+	// Set alice's last_active for room-b to "now", then post 3 messages after that.
+	require.NoError(t, ts.Redis.SetRoomLastActive(context.Background(), alice.ID, "room-b"))
+
+	for i := 1; i <= 3; i++ {
+		ms := now.Add(time.Duration(i) * time.Second).UnixMilli()
+		msg := model.Message{
+			ID:          fmt.Sprintf("%d-%s", ms, "other-user"),
+			RoomID:      "room-b",
+			UserID:      "other-user",
+			Text:        "hello",
+			CreatedAtMS: fmt.Sprintf("%d", ms),
+		}
+		require.NoError(t, ts.Redis.SaveMessage(context.Background(), msg))
+	}
+
+	// Load room-a; the sidebar should show a badge for room-b with count 3.
+	req, _ := http.NewRequest("GET", ts.Server.URL+"/rooms/room-a", nil)
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	assert.Contains(t, html, `class="room-sidebar__badge"`, "sidebar should contain an unread badge")
+	assert.Contains(t, html, ">3</span>", "badge should show count 3")
+}
+
+func TestHandleRoom_NoUnreadBadge_CurrentRoom(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	cookie := ts.AuthCookie(t, alice)
+
+	// Post messages in the room alice is about to view.
+	now := time.Now()
+	for i := 1; i <= 2; i++ {
+		ms := now.Add(time.Duration(i) * time.Second).UnixMilli()
+		msg := model.Message{
+			ID:          fmt.Sprintf("%d-%s", ms, "other-user"),
+			RoomID:      testRoom,
+			UserID:      "other-user",
+			Text:        "hello",
+			CreatedAtMS: fmt.Sprintf("%d", ms),
+		}
+		require.NoError(t, ts.Redis.SaveMessage(context.Background(), msg))
+	}
+
+	// Load the same room — badge should NOT appear for the current room.
+	req, _ := http.NewRequest("GET", ts.Server.URL+"/rooms/"+testRoom, nil)
+	req.AddCookie(cookie)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	// The badge span is always rendered but hidden for the current room.
+	html := string(body)
+	assert.Contains(t, html, fmt.Sprintf(`id="unread-badge-%s"`, testRoom),
+		"badge element should exist for the current room")
+	assert.Contains(t, html, fmt.Sprintf(`id="unread-badge-%s" hidden`, testRoom),
+		"current room badge should be hidden")
 }
 
 // ---------------------------------------------------------------------------

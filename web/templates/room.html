@@ -84,8 +84,9 @@
     <nav>
       {{range .Data.Rooms}}
       <a class="room-sidebar__link{{if eq .ID $.Data.Room.ID}} room-sidebar__link--active{{end}}"
-         href="/rooms/{{.ID}}">
-        # {{.Name}}
+         href="/rooms/{{.ID}}" data-room-id="{{.ID}}">
+        <span class="room-sidebar__name"># {{.Name}}</span>
+        <span class="room-sidebar__badge" id="unread-badge-{{.ID}}"{{if or (eq .ID $.Data.Room.ID) (le .UnreadCount 0)}} hidden{{end}}>{{if gt .UnreadCount 99}}99+{{else}}{{.UnreadCount}}{{end}}</span>
       </a>
       {{end}}
     </nav>
@@ -341,8 +342,9 @@
       fetch('/rooms/' + rID + '/leave', {
         method: 'DELETE',
         credentials: 'include',
-      }).then(function (resp) {
-        window.location.href = resp.redirected ? resp.url : '/';
+        redirect: 'manual',
+      }).then(function () {
+        window.location.href = '/';
       }).catch(function () {
         window.location.href = '/';
       });

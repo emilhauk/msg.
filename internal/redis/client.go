@@ -872,6 +872,16 @@ func (c *Client) Subscribe(ctx context.Context, roomID string) *goredis.PubSub {
 	return c.rdb.Subscribe(ctx, "rooms:"+roomID+":events")
 }
 
+// PublishToUser sends a payload on a user's personal events channel.
+func (c *Client) PublishToUser(ctx context.Context, userID, payload string) error {
+	return c.rdb.Publish(ctx, "users:"+userID+":events", payload).Err()
+}
+
+// SubscribeUser returns a PubSub subscription for a user's personal events channel.
+func (c *Client) SubscribeUser(ctx context.Context, userID string) *goredis.PubSub {
+	return c.rdb.Subscribe(ctx, "users:"+userID+":events")
+}
+
 // ---------------------------------------------------------------------------
 // Room members
 // ---------------------------------------------------------------------------
@@ -996,6 +1006,48 @@ func (c *Client) SetRoomLastActive(ctx context.Context, userID, roomID string) e
 	key := "users:" + userID + ":rooms:" + roomID + ":last_active"
 	val := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	return c.rdb.Set(ctx, key, val, messageTTL).Err()
+}
+
+// GetUnreadCounts returns the number of messages posted after the user's
+// last_active timestamp for each room. Uses a pipeline to minimize round trips.
+func (c *Client) GetUnreadCounts(ctx context.Context, userID string, rooms []*model.Room) error {
+	if len(rooms) == 0 {
+		return nil
+	}
+
+	// Step 1: pipeline GET for all last_active timestamps.
+	pipe := c.rdb.Pipeline()
+	lastActiveCmds := make([]*goredis.StringCmd, len(rooms))
+	for i, r := range rooms {
+		key := "users:" + userID + ":rooms:" + r.ID + ":last_active"
+		lastActiveCmds[i] = pipe.Get(ctx, key)
+	}
+	_, _ = pipe.Exec(ctx) // errors handled per-cmd below
+
+	// Step 2: pipeline ZCOUNT from last_active+1 to +inf for each room.
+	pipe = c.rdb.Pipeline()
+	countCmds := make([]*goredis.IntCmd, len(rooms))
+	for i, r := range rooms {
+		minScore := "-inf"
+		val, err := lastActiveCmds[i].Result()
+		if err == nil {
+			// last_active is in ms; count messages strictly after it.
+			ms, parseErr := strconv.ParseInt(val, 10, 64)
+			if parseErr == nil {
+				minScore = "(" + strconv.FormatInt(ms, 10)
+			}
+		}
+		countCmds[i] = pipe.ZCount(ctx, "rooms:"+r.ID+":messages", minScore, "+inf")
+	}
+	_, _ = pipe.Exec(ctx)
+
+	for i, cmd := range countCmds {
+		n, err := cmd.Result()
+		if err == nil {
+			rooms[i].UnreadCount = int(n)
+		}
+	}
+	return nil
 }
 
 // GetRoomLastActive retrieves the last-active timestamp for a user in a room.

@@ -122,6 +122,9 @@ func (h *MessagesHandler) HandlePost(w http.ResponseWriter, r *http.Request) {
 		_ = h.Redis.SetRoomViewing(ctx2, user.ID, roomID)
 	}()
 
+	// Async unread badge notifications to other room members.
+	go h.publishUnreadEvents(roomID, user.ID)
+
 	// Async unfurl.
 	if rawURL := urlRe.FindString(text); rawURL != "" {
 		go h.fetchAndPublishUnfurl(rawURL, msg.ID, roomID)
@@ -232,6 +235,31 @@ func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedName
 		for _, endpoint := range expired {
 			_ = h.Redis.DeletePushSubscription(ctx, memberID, endpoint)
 		}
+	}
+}
+
+// publishUnreadEvents sends an unread increment signal to each room member's
+// user-level SSE channel, skipping the sender and users actively viewing the room.
+func (h *MessagesHandler) publishUnreadEvents(roomID, senderID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	members, err := h.Redis.GetRoomAccessList(ctx, roomID)
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("unread: get room members")
+		return
+	}
+
+	payload := `unread:{"roomId":"` + roomID + `"}`
+	for _, memberID := range members {
+		if memberID == senderID {
+			continue
+		}
+		viewing, err := h.Redis.IsRoomViewing(ctx, memberID, roomID)
+		if err == nil && viewing {
+			continue
+		}
+		_ = h.Redis.PublishToUser(ctx, memberID, payload)
 	}
 }
 

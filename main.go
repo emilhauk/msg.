@@ -247,6 +247,7 @@ func main() {
 	mux.Handle("GET /rooms/{id}/members", authMW(http.HandlerFunc(notificationsHandler.HandleRoomMembers)))
 	mux.Handle("POST /rooms/{id}/active", authMW(http.HandlerFunc(notificationsHandler.HandleRoomActive)))
 	mux.Handle("POST /rooms/{id}/inactive", authMW(http.HandlerFunc(notificationsHandler.HandleRoomInactive)))
+	mux.Handle("GET /user/events", authMW(http.HandlerFunc(sseHandler.HandleUserSSE)))
 
 	// Push notification routes.
 	mux.HandleFunc("GET /push/vapid-public-key", notificationsHandler.HandleVAPIDPublicKey)

@@ -108,6 +108,22 @@ func patchMessage(t *testing.T, ts *testutil.TestServer, user model.User, room, 
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 }
 
+// waitURLChange polls page.MustInfo().URL until it no longer contains the
+// given substring. This is more robust than WaitNavigation which can
+// resolve from spurious CDP lifecycle events.
+func waitURLChange(t *testing.T, page *rod.Page, notContains string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		u := page.MustInfo().URL
+		if !strings.Contains(u, notContains) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("URL still contains %q after %v", notContains, timeout)
+}
+
 // seedMessage inserts a message directly into Redis for setup purposes.
 func seedMessage(t *testing.T, ts *testutil.TestServer, user model.User, room, text string) model.Message {
 	t.Helper()

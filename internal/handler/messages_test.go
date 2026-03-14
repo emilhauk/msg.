@@ -567,3 +567,81 @@ func TestHandlePost_MentionNotification(t *testing.T) {
 		t.Fatal("mention push notification not delivered within 2s")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Unread event publishing
+// ---------------------------------------------------------------------------
+
+func TestPostMessage_PublishesUnreadToOtherMembers(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	ts.GrantAccess(t, testRoom, bob.ID)
+
+	// Subscribe to bob's user-level channel before posting.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sub := ts.Redis.SubscribeUser(ctx, bob.ID)
+	defer sub.Close()
+	_, err := sub.Receive(ctx)
+	require.NoError(t, err)
+
+	resp := postMsg(t, ts, alice, "hello bob")
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	msg, err := sub.ReceiveMessage(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, msg.Payload, `unread:`)
+	assert.Contains(t, msg.Payload, testRoom)
+}
+
+func TestPostMessage_SkipsUnreadForViewingUser(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+	ts.GrantAccess(t, testRoom, bob.ID)
+
+	// Mark bob as actively viewing the room.
+	require.NoError(t, ts.Redis.SetRoomViewing(context.Background(), bob.ID, testRoom))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sub := ts.Redis.SubscribeUser(ctx, bob.ID)
+	defer sub.Close()
+	_, err := sub.Receive(ctx)
+	require.NoError(t, err)
+
+	resp := postMsg(t, ts, alice, "hello bob")
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	// Bob should NOT receive an unread event because he's viewing the room.
+	select {
+	case msg := <-sub.Channel():
+		t.Fatalf("viewing user should not receive unread event, got: %s", msg.Payload)
+	case <-time.After(300 * time.Millisecond):
+		// expected: no message
+	}
+}
+
+func TestPostMessage_SkipsUnreadForSender(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: testRoom, Name: "Test Room"})
+	ts.GrantAccess(t, testRoom, alice.ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sub := ts.Redis.SubscribeUser(ctx, alice.ID)
+	defer sub.Close()
+	_, err := sub.Receive(ctx)
+	require.NoError(t, err)
+
+	resp := postMsg(t, ts, alice, "talking to myself")
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+
+	select {
+	case msg := <-sub.Channel():
+		t.Fatalf("sender should not receive unread event, got: %s", msg.Payload)
+	case <-time.After(300 * time.Millisecond):
+		// expected: no message for sender
+	}
+}

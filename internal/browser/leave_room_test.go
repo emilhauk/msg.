@@ -10,7 +10,6 @@ import (
 	"github.com/emilhauk/msg/internal/model"
 	"github.com/emilhauk/msg/internal/testutil"
 	"github.com/go-rod/rod/lib/input"
-	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,9 +36,6 @@ func TestLeaveRoom_PanelButton_MultiMember_Confirm(t *testing.T) {
 	page.MustElement("#room-panel-toggle").MustClick()
 	page.MustElement("#room-panel .room-panel__inner")
 
-	// Set up navigation listener before confirming.
-	waitNav := page.WaitNavigation(proto.PageLifecycleEventNameLoad)
-
 	page.MustElement(".leave-room-btn").MustClick()
 
 	// Confirmation dialog must appear.
@@ -49,11 +45,7 @@ func TestLeaveRoom_PanelButton_MultiMember_Confirm(t *testing.T) {
 
 	// Confirm.
 	page.MustElement("#leave-room-confirm").MustClick()
-	waitNav()
-
-	// Should be redirected away from the room.
-	url := page.MustInfo().URL
-	assert.NotContains(t, url, "/rooms/"+roomID, "should be redirected away from the left room")
+	waitURLChange(t, page, "/rooms/"+roomID, 5*time.Second)
 
 	// Alice should no longer have access; bob should still have access.
 	ok, err := ts.Redis.IsRoomAccessible(context.Background(), roomID, alice.ID)
@@ -124,7 +116,6 @@ func TestLeaveRoom_Command_Confirm(t *testing.T) {
 	page.MustElement("#command-autocomplete:not([hidden])")
 
 	// ArrowDown to highlight the leave command, then Enter to execute.
-	waitNav := page.WaitNavigation(proto.PageLifecycleEventNameLoad)
 	page.Keyboard.MustType(input.ArrowDown)
 	page.Keyboard.MustType(input.Enter)
 
@@ -137,10 +128,7 @@ func TestLeaveRoom_Command_Confirm(t *testing.T) {
 
 	// Confirm leaving.
 	page.MustElement("#leave-room-confirm").MustClick()
-	waitNav()
-
-	url := page.MustInfo().URL
-	assert.NotContains(t, url, "/rooms/"+roomID, "should be redirected away after confirming /leave")
+	waitURLChange(t, page, "/rooms/"+roomID, 5*time.Second)
 
 	ok, err := ts.Redis.IsRoomAccessible(context.Background(), roomID, alice.ID)
 	require.NoError(t, err)
@@ -206,18 +194,14 @@ func TestLeaveRoom_LastMember_NoDialog(t *testing.T) {
 	page.MustElement("#room-panel-toggle").MustClick()
 	page.MustElement("#room-panel .room-panel__inner")
 
-	waitNav := page.WaitNavigation(proto.PageLifecycleEventNameLoad)
 	page.MustElement(".leave-room-btn").MustClick()
 
 	// Dialog should NOT open for the last member.
 	dialogOpen := page.MustEval(`() => document.getElementById('leave-room-dialog').open`).Bool()
 	assert.False(t, dialogOpen, "leave dialog should NOT open for the last member")
 
-	// Navigation should complete (redirected after room deletion).
-	waitNav()
-
-	url := page.MustInfo().URL
-	assert.NotContains(t, url, "/rooms/"+roomID, "should be redirected after room deletion")
+	// Wait for navigation to complete (redirected after room deletion).
+	waitURLChange(t, page, "/rooms/"+roomID, 5*time.Second)
 
 	// Room should be gone from Redis.
 	room, err := ts.Redis.GetRoom(context.Background(), roomID)
@@ -253,9 +237,8 @@ func TestLeaveRoom_MessageIsolation(t *testing.T) {
 	page.MustElement("#room-panel-toggle").MustClick()
 	page.MustElement("#room-panel .room-panel__inner")
 
-	waitNav := page.WaitNavigation(proto.PageLifecycleEventNameLoad)
 	page.MustElement(".leave-room-btn").MustClick()
-	waitNav()
+	waitURLChange(t, page, "/rooms/"+roomA, 5*time.Second)
 
 	// roomA's message should be deleted.
 	deletedMsg, err := ts.Redis.GetMessage(context.Background(), msgA.ID)

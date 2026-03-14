@@ -16,6 +16,9 @@ type User struct {
 type Room struct {
 	ID   string `redis:"id"`
 	Name string `redis:"name"`
+
+	// UnreadCount is populated per-request for the sidebar; not stored in Redis.
+	UnreadCount int `redis:"-"`
 }
 
 // Message represents a single chat message.

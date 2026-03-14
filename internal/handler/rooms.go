@@ -102,6 +102,7 @@ func (h *RoomsHandler) HandleRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rooms, _ := h.Redis.GetAccessibleRooms(r.Context(), user.ID)
+	_ = h.Redis.GetUnreadCounts(r.Context(), user.ID, rooms)
 
 	h.Renderer.Render(w, http.StatusOK, "room.html", roomPageData{
 		User:     user,
@@ -295,8 +296,9 @@ func (h *RoomsHandler) HandleLeave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if count <= 1 {
-		// Last member: notify any remaining open SSE connections, then delete.
-		_ = h.Redis.Publish(r.Context(), roomID, "redirect:/")
+		// Last member — delete room. No SSE redirect needed: the leaving
+		// user navigates via the HTTP 303 response, and there are no other
+		// members to notify.
 		if err := h.Redis.DeleteRoom(r.Context(), roomID); err != nil {
 			http.Error(w, "failed to delete room", http.StatusInternalServerError)
 			return

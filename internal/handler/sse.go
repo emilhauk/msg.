@@ -125,6 +125,50 @@ func (h *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleUserSSE streams user-level events (e.g. unread notifications) via SSE.
+// The user is identified from the auth middleware, not from the URL.
+func (h *SSEHandler) HandleUserSSE(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
+	sub := h.Redis.SubscribeUser(r.Context(), user.ID)
+	defer sub.Close()
+
+	ch := sub.Channel()
+	ctx := r.Context()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case redisMsg, ok := <-ch:
+			if !ok {
+				return
+			}
+			payload := redisMsg.Payload
+			switch {
+			case strings.HasPrefix(payload, "unread:"):
+				jsonData := strings.TrimPrefix(payload, "unread:")
+				fmt.Fprintf(w, "event: unread\ndata: %s\n\n", jsonData)
+				flusher.Flush()
+			}
+		}
+	}
+}
+
 // escapeSSE ensures multi-line HTML is transmitted correctly over SSE by
 // prefixing each line after the first with "data: ".
 func escapeSSE(html string) string {

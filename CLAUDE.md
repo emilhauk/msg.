@@ -119,6 +119,8 @@ GET  /settings/mute                        — get current mute state
 POST /settings/mute                        — set mute duration (1h/8h/24h/168h/forever)
 DELETE /settings/mute                      — clear mute
 
+GET  /user/events                          — user-level SSE stream (unread badges, future cross-room events)
+
 GET  /sw.js                                — Service Worker (root scope; no-cache)
 GET  /static/*                             — embedded static files (immutable cache)
 GET  /static/chroma.css                    — generated syntax-highlight CSS
@@ -141,6 +143,7 @@ rooms:{id}                              Hash    id, name
 rooms:{id}:messages                     ZSet    message IDs scored by created_at (unix ms); cleaned on write
 rooms:{id}:members                      ZSet    user IDs scored by last-post time (unix ms); no TTL
 rooms:{id}:events                       Pub/Sub SSE fan-out channel
+users:{uuid}:events                     Pub/Sub user-level SSE channel (unread badges, future cross-room events)
 messages:{msg-id}                       Hash    id, room_id, user_id, text, kind, attachments (JSON), created_at (ms); TTL 30 days
 reactions:{msg-id}                      Hash    emoji → count; TTL 30 days
 reactions:{msg-id}:users                Hash    "{emoji}\x00{userID}" → "1"; TTL 30 days
@@ -176,6 +179,12 @@ All payloads published to `rooms:{id}:events` use a prefix to identify type:
 "memberstatus:<json>"    → event: memberstatus  (HTMX: re-fetch panel; JS: update own bell)
 ```
 
+Payloads published to `users:{uuid}:events` (user-level channel):
+
+```
+"unread:<json>"          → event: unread   (JS: increment badge for { roomId })
+```
+
 On connect the server also sends:
 ```
 event: version\ndata: <buildSHA>
@@ -184,14 +193,16 @@ Used by the client to detect deploys and trigger a reload.
 
 ---
 
-## Two SSE Connections Per Client
+## Three SSE Connections Per Client
 
-The room page opens **two** `EventSource` connections to the same `/rooms/{id}/events` endpoint:
+The room page opens **three** `EventSource` connections:
 
-1. **HTMX-managed** (`sse-connect` on `<section>`): handles `event: message` only via `sse-swap`.
-2. **Vanilla JS-managed** (in `room.html` `<script>`): handles `unfurl`, `reaction`, `delete`, `edit`, `memberstatus`, and `version`.
+1. **HTMX-managed** (`sse-connect` on `<section>`) → `/rooms/{id}/events`: handles `event: message` only via `sse-swap`.
+2. **Vanilla JS-managed** (`room/sse.js`) → `/rooms/{id}/events`: handles `unfurl`, `reaction`, `delete`, `edit`, `memberstatus`, and `version`.
+3. **User-level** (`room/user-sse.js`) → `/user/events`: handles `unread` badge increments for other rooms.
 
-Rationale: HTMX's SSE extension silently drops event types it is not `sse-swap`-ing.
+Rationale for #1/#2 split: HTMX's SSE extension silently drops event types it is not `sse-swap`-ing.
+Rationale for #3: user-level events (unread counts, future invites/DMs) are not room-scoped.
 
 ---
 
