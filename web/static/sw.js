@@ -38,6 +38,7 @@ self.addEventListener('push', (event) => {
     data: { url: payload.url || '/' },
     // Reuse the same tag so rapid messages don't stack.
     renotify: true,
+    image: payload.image || undefined,
   };
 
   console.log('[sw] push received', title);

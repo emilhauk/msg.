@@ -36,6 +36,7 @@ type Payload struct {
 	Body      string `json:"body"`
 	Icon      string `json:"icon,omitempty"`
 	Tag       string `json:"tag,omitempty"`
+	Image     string `json:"image,omitempty"`
 	IsMention bool   `json:"isMention,omitempty"`
 	RoomID    string `json:"roomId,omitempty"`
 	URL       string `json:"url,omitempty"`

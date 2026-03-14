@@ -212,7 +212,43 @@ func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedName
 		isMention := mentionSet[strings.ToLower(member.Name)]
 
 		body := msg.Text
-		if len(body) > 120 {
+		imageURL := ""
+
+		var imageCount, videoCount int
+		for _, a := range msg.Attachments {
+			switch {
+			case isImageType(a.ContentType):
+				imageCount++
+				if imageURL == "" {
+					imageURL = a.URL
+				}
+			case isVideoType(a.ContentType):
+				videoCount++
+			}
+		}
+
+		if imageCount > 0 || videoCount > 0 {
+			var parts []string
+			if imageCount == 1 {
+				parts = append(parts, "an image")
+			} else if imageCount > 1 {
+				parts = append(parts, fmt.Sprintf("%d images", imageCount))
+			}
+			if videoCount == 1 {
+				parts = append(parts, "a video")
+			} else if videoCount > 1 {
+				parts = append(parts, fmt.Sprintf("%d videos", videoCount))
+			}
+			mediaDesc := "Sent " + strings.Join(parts, " and ")
+
+			if body == "" {
+				body = mediaDesc
+			} else if len(body) > 120 {
+				body = body[:117] + "…\n" + mediaDesc
+			} else {
+				body += "\n" + mediaDesc
+			}
+		} else if len(body) > 120 {
 			body = body[:117] + "…"
 		}
 
@@ -225,6 +261,7 @@ func (h *MessagesHandler) sendPushNotifications(msg model.Message, mentionedName
 			Title:     title,
 			Body:      body,
 			Icon:      h.BaseURL + "/static/logo_square_256.png",
+			Image:     imageURL,
 			Tag:       "msg-" + msg.RoomID,
 			IsMention: isMention,
 			RoomID:    msg.RoomID,
@@ -607,6 +644,22 @@ func saveAndBroadcastSystemMessage(ctx context.Context, rdb *redisclient.Client,
 		return err
 	}
 	return rdb.Publish(ctx, roomID, "msg:"+html)
+}
+
+func isImageType(ct string) bool {
+	switch ct {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return true
+	}
+	return false
+}
+
+func isVideoType(ct string) bool {
+	switch ct {
+	case "video/mp4", "video/webm":
+		return true
+	}
+	return false
 }
 
 func normalizeURL(raw string) string {
