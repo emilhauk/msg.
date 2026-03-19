@@ -83,9 +83,13 @@ document.addEventListener('click', (e) => {
 });
 
 // Enter (without Shift) submits the edit form; Shift+Enter inserts newline.
+// On virtual (touch) keyboards Enter always inserts a newline — the user taps
+// the submit button instead.
 // Skip if autocomplete already handled the event (e.g. inserted an emoji).
+
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.shiftKey || e.defaultPrevented) return;
+  if (window.__isVirtualKeyboard?.()) return;
   const ta = e.target;
   if (!ta || !ta.classList.contains('message-edit-form__textarea')) return;
   const form = ta.closest('.message-edit-form');

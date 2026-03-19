@@ -1,3 +1,4 @@
+import '/static/room/input-mode.js';
 import '/static/room/owner-controls.js';
 import '/static/room/scroll.js';
 import '/static/room/textarea.js';

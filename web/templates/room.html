@@ -203,7 +203,8 @@
           placeholder="Message #{{.Data.Room.Name}}"
           rows="1"
           autocomplete="off"
-          onkeydown="if(event.key==='Enter'&&!event.shiftKey&&document.getElementById('emoji-autocomplete').hidden){event.preventDefault();this.closest('form').requestSubmit();}"
+          enterkeyhint="enter"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!window.__isVirtualKeyboard()&&document.getElementById('emoji-autocomplete').hidden){event.preventDefault();this.closest('form').requestSubmit();}"
         ></textarea>
         <button class="btn btn--primary message-form__send" type="submit" aria-label="Send">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

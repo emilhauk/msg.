@@ -51,7 +51,7 @@
     <form class="message-edit-form" id="edit-form-{{.ID}}" hidden
           hx-patch="/rooms/{{.RoomID}}/messages/{{.ID}}"
           hx-swap="none">
-      <textarea class="message-edit-form__textarea" name="text" rows="1">{{.Text}}</textarea>
+      <textarea class="message-edit-form__textarea" name="text" rows="1" enterkeyhint="enter">{{.Text}}</textarea>
       <div class="message-edit-form__actions">
         <button type="submit" class="btn btn--primary btn--sm">Save</button>
         <button type="button" class="btn btn--ghost btn--sm" data-edit-cancel="{{.ID}}">Cancel</button>
