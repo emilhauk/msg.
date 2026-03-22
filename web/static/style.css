@@ -2266,6 +2266,7 @@ emoji-picker {
   border: none;
   background: transparent;
   color: var(--color-text);
+  overflow: hidden;
 }
 
 .action-sheet::backdrop {
