@@ -1051,6 +1051,7 @@ body[data-action-sheet] .message__toolbar {
 }
 .message--continuation .message__avatar {
   visibility: hidden;
+  height: 0;
 }
 .message--continuation .message__author,
 .message--continuation .message__time,
