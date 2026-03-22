@@ -2283,8 +2283,8 @@ emoji-picker {
   animation: action-sheet-fade-out 200ms ease forwards;
 }
 
-.action-sheet[open] > .action-sheet__content {
-  animation: action-sheet-slide-up 250ms ease;
+.action-sheet.is-opening > .action-sheet__content {
+  animation: action-sheet-slide-up 250ms ease both;
 }
 
 .action-sheet.is-closing > .action-sheet__content {

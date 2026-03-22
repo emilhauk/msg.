@@ -10,6 +10,7 @@ if (!isTouchDevice) {
   document.body.dataset.actionSheet = '';
 
   const dialog = document.getElementById('message-actions');
+  const content = dialog.querySelector('.action-sheet__content');
   const btnReact = dialog.querySelector('[data-action="react"]');
   const btnCopy = dialog.querySelector('[data-action="copy"]');
   const btnEdit = dialog.querySelector('[data-action="edit"]');
@@ -74,7 +75,19 @@ if (!isTouchDevice) {
     clearHighlight();
     article.classList.add('message--sheet-target');
 
+    // Hide content off-screen before opening so there's no flash.
+    content.style.transform = 'translateY(100%)';
     dialog.showModal();
+    // Wait one frame for the dialog to be fully laid out in the top layer,
+    // then trigger the slide-up animation.
+    requestAnimationFrame(() => {
+      content.style.transform = '';
+      dialog.classList.add('is-opening');
+      content.addEventListener('animationend', function handler() {
+        content.removeEventListener('animationend', handler);
+        dialog.classList.remove('is-opening');
+      });
+    });
   }
 
   function showInlinePicker() {
@@ -190,7 +203,6 @@ if (!isTouchDevice) {
   let currentY = 0;
   let dragging = false;
   const DISMISS_THRESHOLD = 80;
-  const content = dialog.querySelector('.action-sheet__content');
 
   function isInsideEmojiPicker(target) {
     return !!target.closest('emoji-picker');
