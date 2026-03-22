@@ -205,7 +205,7 @@ img { display: block; max-width: 100%; }
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  padding: 0 1.25rem;
+  padding: 0 calc(1.25rem + env(safe-area-inset-right, 0px)) 0 calc(1.25rem + env(safe-area-inset-left, 0px));
 }
 
 .site-header__logo {
@@ -1335,7 +1335,7 @@ body[data-action-sheet] .message__toolbar {
    Message compose form
    ============================================================ */
 .message-form {
-  padding: .75rem 1.25rem 1rem;
+  padding: .75rem calc(1.25rem + env(safe-area-inset-right, 0px)) calc(1rem + env(safe-area-inset-bottom, 0px)) calc(1.25rem + env(safe-area-inset-left, 0px));
   flex-shrink: 0;
   border-top: 1px solid var(--color-border);
 }
@@ -2119,7 +2119,7 @@ emoji-picker {
   :root { --sidebar-w: 0px; }
   .message { padding: .4rem .875rem; }
   .message--continuation { padding-top: .0625rem; }
-  .message-form { padding: .5rem .875rem .75rem; }
+  .message-form { padding: .5rem calc(.875rem + env(safe-area-inset-right, 0px)) calc(.75rem + env(safe-area-inset-bottom, 0px)) calc(.875rem + env(safe-area-inset-left, 0px)); }
 
   /* Show sidebar toggle button */
   .room-sidebar-toggle { display: inline-flex; }
@@ -2314,16 +2314,16 @@ emoji-picker {
 
 .action-sheet__content {
   position: absolute;
-  bottom: .5rem;
-  left: .5rem;
-  right: .5rem;
+  bottom: max(.5rem, env(safe-area-inset-bottom, 0px));
+  left: max(.5rem, env(safe-area-inset-left, 0px));
+  right: max(.5rem, env(safe-area-inset-right, 0px));
   width: auto;
-  max-height: calc(100% - 1rem);
+  max-height: calc(100% - max(.5rem, env(safe-area-inset-bottom, 0px)) - .5rem);
   overflow-y: auto;
   background: var(--color-surface);
   border-radius: var(--radius-lg, 16px);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, .15);
-  padding: 0 0 calc(.5rem + env(safe-area-inset-bottom, 0px));
+  padding: 0 0 .5rem;
   transition: transform .15s ease;
 }
 
