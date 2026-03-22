@@ -50,15 +50,18 @@ func linkify(s string) template.HTML {
 
 // inlineRe matches inline markdown patterns and URLs in priority order.
 // Bold (**text**) must come before italic (*text*) to avoid ** consuming just one *.
-// Groups: (1) **bold**, (2) URL, (3) *italic*
+// Groups: (1) **bold**, (2) URL, (3) *italic*, (4) ~~strikethrough~~, (5) ~strikethrough~
+// Double tilde must come before single to avoid ~~ consuming just one ~.
 var inlineRe = regexp.MustCompile(
 	`\*\*(.+?)\*\*` +
 		`|(https?://[^\s<>"]+)` +
-		`|\*(\S(?:.+?\S)?)\*`,
+		`|\*(\S(?:.+?\S)?)\*` +
+		`|~~(.+?)~~` +
+		`|~(.+?)~`,
 )
 
-// renderInline applies bold (**text**), italic (*text*), and URL linkification
-// to s, HTML-escaping all plain-text segments. The result is safe HTML.
+// renderInline applies bold (**text**), italic (*text*), strikethrough (~~text~~),
+// and URL linkification to s, HTML-escaping all plain-text segments. The result is safe HTML.
 func renderInline(s string) template.HTML {
 	var b strings.Builder
 	last := 0
@@ -85,6 +88,14 @@ func renderInline(s string) template.HTML {
 			b.WriteString("<em>")
 			b.WriteString(template.HTMLEscapeString(s[loc[6]:loc[7]]))
 			b.WriteString("</em>")
+		case loc[8] >= 0: // ~~strikethrough~~
+			b.WriteString("<del>")
+			b.WriteString(template.HTMLEscapeString(s[loc[8]:loc[9]]))
+			b.WriteString("</del>")
+		case loc[10] >= 0: // ~strikethrough~
+			b.WriteString("<del>")
+			b.WriteString(template.HTMLEscapeString(s[loc[10]:loc[11]]))
+			b.WriteString("</del>")
 		}
 		last = matchEnd
 	}

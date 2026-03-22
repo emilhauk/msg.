@@ -108,6 +108,36 @@ func TestRenderInline(t *testing.T) {
 			input: "a & b **bold** c & d",
 			want:  "a &amp; b <strong>bold</strong> c &amp; d",
 		},
+		{
+			name:  "strikethrough with single tildes",
+			input: "~deleted~",
+			want:  "<del>deleted</del>",
+		},
+		{
+			name:  "strikethrough with double tildes",
+			input: "~~deleted~~",
+			want:  "<del>deleted</del>",
+		},
+		{
+			name:  "strikethrough with spaces inside",
+			input: "~hello world~",
+			want:  "<del>hello world</del>",
+		},
+		{
+			name:  "strikethrough mixed with bold and italic",
+			input: "**bold** and ~struck~ and *italic*",
+			want:  "<strong>bold</strong> and <del>struck</del> and <em>italic</em>",
+		},
+		{
+			name:  "unclosed strikethrough is not formatted",
+			input: "~unclosed",
+			want:  "~unclosed",
+		},
+		{
+			name:  "strikethrough wraps escaped HTML",
+			input: "~<b>not html</b>~",
+			want:  "<del>&lt;b&gt;not html&lt;/b&gt;</del>",
+		},
 	}
 
 	for _, tt := range tests {
