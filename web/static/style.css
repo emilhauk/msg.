@@ -2313,13 +2313,14 @@ emoji-picker {
 
 .action-sheet__content {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  max-height: 100%;
+  bottom: .5rem;
+  left: .5rem;
+  right: .5rem;
+  width: auto;
+  max-height: calc(100% - 1rem);
   overflow-y: auto;
   background: var(--color-surface);
-  border-radius: var(--radius-lg, 16px) var(--radius-lg, 16px) 0 0;
+  border-radius: var(--radius-lg, 16px);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, .15);
   padding: 0 0 calc(.5rem + env(safe-area-inset-bottom, 0px));
   transition: transform .15s ease;
