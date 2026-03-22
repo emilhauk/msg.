@@ -29,7 +29,7 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .08);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, .12);
 
-  --header-h: 56px;
+  --header-h: calc(56px + env(safe-area-inset-top, 0px));
   --room-header-h: 55px;
   --sidebar-w: 220px;
 }
@@ -89,7 +89,7 @@ html {
 
 body {
   height: 100%;
-  height: 100dvh;
+  height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -194,6 +194,7 @@ img { display: block; max-width: 100%; }
   position: sticky;
   top: 0;
   z-index: 100;
+  padding-top: env(safe-area-inset-top, 0px);
   height: var(--header-h);
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
@@ -205,7 +206,7 @@ img { display: block; max-width: 100%; }
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  padding: 0 1.25rem;
+  padding: 0 calc(1.25rem + env(safe-area-inset-right, 0px)) 0 calc(1.25rem + env(safe-area-inset-left, 0px));
 }
 
 .site-header__logo {
@@ -1335,7 +1336,7 @@ body[data-action-sheet] .message__toolbar {
    Message compose form
    ============================================================ */
 .message-form {
-  padding: .75rem 1.25rem 1rem;
+  padding: .75rem calc(1.25rem + env(safe-area-inset-right, 0px)) calc(1rem + env(safe-area-inset-bottom, 0px)) calc(1.25rem + env(safe-area-inset-left, 0px));
   flex-shrink: 0;
   border-top: 1px solid var(--color-border);
 }
@@ -2119,7 +2120,7 @@ emoji-picker {
   :root { --sidebar-w: 0px; }
   .message { padding: .4rem .875rem; }
   .message--continuation { padding-top: .0625rem; }
-  .message-form { padding: .5rem .875rem .75rem; }
+  .message-form { padding: .5rem calc(.875rem + env(safe-area-inset-right, 0px)) calc(.75rem + env(safe-area-inset-bottom, 0px)) calc(.875rem + env(safe-area-inset-left, 0px)); }
 
   /* Show sidebar toggle button */
   .room-sidebar-toggle { display: inline-flex; }
@@ -2266,6 +2267,7 @@ emoji-picker {
   border: none;
   background: transparent;
   color: var(--color-text);
+  overflow: hidden;
 }
 
 .action-sheet::backdrop {
@@ -2313,15 +2315,16 @@ emoji-picker {
 
 .action-sheet__content {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  max-height: 100%;
+  bottom: max(.5rem, env(safe-area-inset-bottom, 0px));
+  left: max(.5rem, env(safe-area-inset-left, 0px));
+  right: max(.5rem, env(safe-area-inset-right, 0px));
+  width: auto;
+  max-height: calc(100% - max(.5rem, env(safe-area-inset-bottom, 0px)) - .5rem);
   overflow-y: auto;
   background: var(--color-surface);
-  border-radius: var(--radius-lg, 16px) var(--radius-lg, 16px) 0 0;
+  border-radius: var(--radius-lg, 16px);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, .15);
-  padding: 0 0 calc(.5rem + env(safe-area-inset-bottom, 0px));
+  padding: 0 0 .5rem;
   transition: transform .15s ease;
 }
 
