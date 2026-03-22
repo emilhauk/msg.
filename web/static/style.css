@@ -1071,6 +1071,19 @@ body[data-action-sheet] .message__toolbar {
   white-space: pre-wrap;
 }
 
+/* Blockquote */
+.message__blockquote {
+  margin: .25rem 0;
+  padding: .375rem .75rem;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-bg-subtle);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  white-space: pre-wrap;
+}
+
+.message__blockquote:first-child { margin-top: 0; }
+.message__blockquote:last-child  { margin-bottom: 0; }
+
 /* ============================================================
    Inline message edit form
    ============================================================ */

@@ -92,6 +92,9 @@ func renderInline(s string) template.HTML {
 	return template.HTML(b.String())
 }
 
+// blockquoteRe matches lines that are blockquote items (> followed by optional space).
+var blockquoteRe = regexp.MustCompile(`^> ?`)
+
 // ulItemRe matches lines that are unordered list items (- or * followed by space).
 var ulItemRe = regexp.MustCompile(`^[*-] `)
 
@@ -106,6 +109,17 @@ func renderMarkdownBlock(s string) template.HTML {
 	i := 0
 	for i < len(lines) {
 		line := lines[i]
+		if blockquoteRe.MatchString(line) {
+			var inner []string
+			for i < len(lines) && blockquoteRe.MatchString(lines[i]) {
+				inner = append(inner, blockquoteRe.ReplaceAllString(lines[i], ""))
+				i++
+			}
+			out.WriteString(`<blockquote class="message__blockquote">`)
+			out.WriteString(string(renderMarkdownBlock(strings.Join(inner, "\n"))))
+			out.WriteString(`</blockquote>`)
+			continue
+		}
 		if ulItemRe.MatchString(line) {
 			out.WriteString("<ul>")
 			for i < len(lines) && ulItemRe.MatchString(lines[i]) {

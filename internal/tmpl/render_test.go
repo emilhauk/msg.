@@ -203,6 +203,41 @@ func TestRenderMarkdownBlock(t *testing.T) {
 			input: "- a\n1. b",
 			want:  "<ul><li>a</li></ul><ol><li>b</li></ol>",
 		},
+		{
+			name:  "single-line blockquote",
+			input: "> hello world",
+			want:  `<blockquote class="message__blockquote">hello world</blockquote>`,
+		},
+		{
+			name:  "multi-line blockquote",
+			input: "> line one\n> line two",
+			want:  `<blockquote class="message__blockquote">line one` + "\n" + `line two</blockquote>`,
+		},
+		{
+			name:  "blockquote with inline bold",
+			input: "> **bold quote**",
+			want:  `<blockquote class="message__blockquote"><strong>bold quote</strong></blockquote>`,
+		},
+		{
+			name:  "blockquote with inline italic and link",
+			input: "> *italic* and https://example.com",
+			want:  `<blockquote class="message__blockquote"><em>italic</em> and <a href="https://example.com" target="_blank" rel="noopener noreferrer">https://example.com</a></blockquote>`,
+		},
+		{
+			name:  "blockquote followed by regular text",
+			input: "> quoted\nregular",
+			want:  `<blockquote class="message__blockquote">quoted</blockquote>` + "\n" + `regular`,
+		},
+		{
+			name:  "blockquote with bare > line",
+			input: ">bare",
+			want:  `<blockquote class="message__blockquote">bare</blockquote>`,
+		},
+		{
+			name:  "list inside blockquote",
+			input: "> - first\n> - second",
+			want:  `<blockquote class="message__blockquote"><ul><li>first</li><li>second</li></ul></blockquote>`,
+		},
 	}
 
 	for _, tt := range tests {
