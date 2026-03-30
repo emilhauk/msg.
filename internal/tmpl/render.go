@@ -49,19 +49,22 @@ func linkify(s string) template.HTML {
 }
 
 // inlineRe matches inline markdown patterns and URLs in priority order.
+// Inline code (`text`) comes first so backtick-wrapped content is not parsed for other markdown.
 // Bold (**text**) must come before italic (*text*) to avoid ** consuming just one *.
-// Groups: (1) **bold**, (2) URL, (3) *italic*, (4) ~~strikethrough~~, (5) ~strikethrough~
+// Groups: (1) `code`, (2) **bold**, (3) URL, (4) *italic*, (5) ~~strikethrough~~, (6) ~strikethrough~
 // Double tilde must come before single to avoid ~~ consuming just one ~.
 var inlineRe = regexp.MustCompile(
-	`\*\*(.+?)\*\*` +
+	"`([^`]+)`" +
+		`|\*\*(.+?)\*\*` +
 		`|(https?://[^\s<>"]+)` +
 		`|\*(\S(?:.+?\S)?)\*` +
 		`|~~(.+?)~~` +
 		`|~(.+?)~`,
 )
 
-// renderInline applies bold (**text**), italic (*text*), strikethrough (~~text~~),
-// and URL linkification to s, HTML-escaping all plain-text segments. The result is safe HTML.
+// renderInline applies inline code (`text`), bold (**text**), italic (*text*),
+// strikethrough (~~text~~), and URL linkification to s, HTML-escaping all
+// plain-text segments. The result is safe HTML.
 func renderInline(s string) template.HTML {
 	var b strings.Builder
 	last := 0
@@ -69,12 +72,16 @@ func renderInline(s string) template.HTML {
 		matchStart, matchEnd := loc[0], loc[1]
 		b.WriteString(template.HTMLEscapeString(s[last:matchStart]))
 		switch {
-		case loc[2] >= 0: // **bold**
-			b.WriteString("<strong>")
+		case loc[2] >= 0: // `code`
+			b.WriteString("<code>")
 			b.WriteString(template.HTMLEscapeString(s[loc[2]:loc[3]]))
+			b.WriteString("</code>")
+		case loc[4] >= 0: // **bold**
+			b.WriteString("<strong>")
+			b.WriteString(template.HTMLEscapeString(s[loc[4]:loc[5]]))
 			b.WriteString("</strong>")
-		case loc[4] >= 0: // URL
-			raw := s[loc[4]:loc[5]]
+		case loc[6] >= 0: // URL
+			raw := s[loc[6]:loc[7]]
 			if u, err := url.ParseRequestURI(raw); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 				b.WriteString(`<a href="`)
 				b.WriteString(template.HTMLEscapeString(raw))
@@ -84,17 +91,17 @@ func renderInline(s string) template.HTML {
 			} else {
 				b.WriteString(template.HTMLEscapeString(raw))
 			}
-		case loc[6] >= 0: // *italic*
+		case loc[8] >= 0: // *italic*
 			b.WriteString("<em>")
-			b.WriteString(template.HTMLEscapeString(s[loc[6]:loc[7]]))
-			b.WriteString("</em>")
-		case loc[8] >= 0: // ~~strikethrough~~
-			b.WriteString("<del>")
 			b.WriteString(template.HTMLEscapeString(s[loc[8]:loc[9]]))
-			b.WriteString("</del>")
-		case loc[10] >= 0: // ~strikethrough~
+			b.WriteString("</em>")
+		case loc[10] >= 0: // ~~strikethrough~~
 			b.WriteString("<del>")
 			b.WriteString(template.HTMLEscapeString(s[loc[10]:loc[11]]))
+			b.WriteString("</del>")
+		case loc[12] >= 0: // ~strikethrough~
+			b.WriteString("<del>")
+			b.WriteString(template.HTMLEscapeString(s[loc[12]:loc[13]]))
 			b.WriteString("</del>")
 		}
 		last = matchEnd

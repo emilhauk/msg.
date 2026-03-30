@@ -138,6 +138,26 @@ func TestRenderInline(t *testing.T) {
 			input: "~<b>not html</b>~",
 			want:  "<del>&lt;b&gt;not html&lt;/b&gt;</del>",
 		},
+		{
+			name:  "inline code with backticks",
+			input: "run `go test` now",
+			want:  "run <code>go test</code> now",
+		},
+		{
+			name:  "inline code escapes HTML",
+			input: "`<script>`",
+			want:  "<code>&lt;script&gt;</code>",
+		},
+		{
+			name:  "inline code prevents inner markdown",
+			input: "`**not bold**`",
+			want:  "<code>**not bold**</code>",
+		},
+		{
+			name:  "unclosed backtick is not formatted",
+			input: "use `unclosed",
+			want:  "use `unclosed",
+		},
 	}
 
 	for _, tt := range tests {
