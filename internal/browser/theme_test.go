@@ -16,12 +16,12 @@ import (
 
 const themeRoom = "room-theme"
 
-// clickThemeToggle opens the profile popover then clicks the theme-toggle
-// button using real pointer events, so the test fails if an overlay is
-// blocking pointer input.
-func clickThemeToggle(page *rod.Page) {
+// clickThemeOption opens the settings dialog and clicks the theme switcher
+// button for the given value ("auto", "light", or "dark").
+func clickThemeOption(page *rod.Page, value string) {
 	page.MustElement("#profile-btn").MustClick()
-	page.MustElement("[data-theme-toggle]").MustClick()
+	page.MustElement("#open-settings-btn").MustClick()
+	page.MustElement("[data-theme-value=\"" + value + "\"]").MustClick()
 }
 
 // TestThemeToggle_DarkOS verifies that on a dark-mode OS the first click on the
@@ -64,14 +64,14 @@ func TestThemeToggle_DarkOS(t *testing.T) {
 	initial := page.MustEval(`() => document.documentElement.getAttribute('data-theme')`).Str()
 	assert.Equal(t, "auto", initial, "initial data-theme should be 'auto' with no stored preference")
 
-	// One click on a dark-mode OS should go to 'light', not 'dark'.
-	clickThemeToggle(page)
+	// Clicking 'light' on a dark-mode OS should set data-theme to 'light'.
+	clickThemeOption(page, "light")
 
 	theme := page.MustEval(`() => document.documentElement.getAttribute('data-theme')`).Str()
-	assert.Equal(t, "light", theme, "first click on dark OS should set data-theme to 'light'")
+	assert.Equal(t, "light", theme, "clicking light should set data-theme to 'light'")
 
 	stored := page.MustEval(`() => localStorage.getItem('theme')`).Str()
-	assert.Equal(t, "light", stored, "localStorage should store 'light' after first click on dark OS")
+	assert.Equal(t, "light", stored, "localStorage should store 'light'")
 }
 
 // TestThemeToggle_LightOS verifies that on a light-mode OS the first click on
@@ -109,9 +109,9 @@ func TestThemeToggle_LightOS(t *testing.T) {
 	page.MustNavigate(ts.Server.URL + "/rooms/" + themeRoom)
 	page.MustWaitLoad()
 
-	// One click on a light-mode OS should go to 'dark'.
-	clickThemeToggle(page)
+	// Clicking 'dark' on a light-mode OS should set data-theme to 'dark'.
+	clickThemeOption(page, "dark")
 
 	theme := page.MustEval(`() => document.documentElement.getAttribute('data-theme')`).Str()
-	assert.Equal(t, "dark", theme, "first click on light OS should set data-theme to 'dark'")
+	assert.Equal(t, "dark", theme, "clicking dark should set data-theme to 'dark'")
 }

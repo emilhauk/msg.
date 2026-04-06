@@ -183,6 +183,7 @@ func TestNewRoomModal(t *testing.T) {
 	nav := page.WaitNavigation(proto.PageLifecycleEventNameLoad)
 	page.MustElement("#new-room-dialog form [type=submit]").MustClick()
 	nav()
+	page.MustWaitStable()
 
 	// Should be redirected to the new room page with the correct title.
 	assert.Contains(t, page.MustInfo().URL, "/rooms/", "should be redirected to the new room")
