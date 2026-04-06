@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -77,6 +78,8 @@ func (c *Client) Close() error { return c.rdb.Close() }
 // ---------------------------------------------------------------------------
 
 // SetSession stores session data for a given token, refreshing TTL.
+// It also records the token in the user's session set so that all sessions
+// can be invalidated when the account is deleted.
 func (c *Client) SetSession(ctx context.Context, token string, user model.User) error {
 	key := "sessions:" + token
 	pipe := c.rdb.Pipeline()
@@ -86,6 +89,7 @@ func (c *Client) SetSession(ctx context.Context, token string, user model.User) 
 		"avatar_url", user.AvatarURL,
 	)
 	pipe.Expire(ctx, key, sessionTTL)
+	pipe.SAdd(ctx, "users:"+user.ID+":sessions", token)
 	_, err := pipe.Exec(ctx)
 	return err
 }
@@ -114,23 +118,28 @@ func (c *Client) DeleteSession(ctx context.Context, token string) error {
 // Users
 // ---------------------------------------------------------------------------
 
-// CreateUser writes a new canonical user to Redis. Only called the first time
-// an identity is seen. For subsequent logins, use UpsertUser to refresh
-// display name and avatar.
+// CreateUser writes a new canonical user to Redis and claims the display name
+// in the name index. Only called the first time an identity is seen.
 func (c *Client) CreateUser(ctx context.Context, user model.User) error {
-	return c.rdb.HSet(ctx, "users:"+user.ID,
+	if err := c.rdb.HSet(ctx, "users:"+user.ID,
 		"id", user.ID,
 		"name", user.Name,
 		"avatar_url", user.AvatarURL,
 		"email", user.Email,
 		"created_at", user.CreatedAt,
-	).Err()
+	).Err(); err != nil {
+		return err
+	}
+	if user.Name != "" {
+		c.rdb.SetNX(ctx, "name_index:"+strings.ToLower(user.Name), user.ID, 0) //nolint:errcheck
+	}
+	return nil
 }
 
-// UpsertUser refreshes the display name and avatar for an existing canonical user.
+// UpsertUser refreshes the avatar for an existing canonical user. The display
+// name is managed separately via the profile settings and is not overwritten.
 func (c *Client) UpsertUser(ctx context.Context, user model.User) error {
 	return c.rdb.HSet(ctx, "users:"+user.ID,
-		"name", user.Name,
 		"avatar_url", user.AvatarURL,
 	).Err()
 }
@@ -241,6 +250,184 @@ func (c *Client) LinkIdentity(ctx context.Context, userID, provider, providerUse
 	pipe.Set(ctx, identityKey, userID, 0) // no TTL — identity mappings are permanent
 	pipe.SAdd(ctx, identitiesSetKey, identityMember)
 	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// GetUserIdentities returns all identity strings for a user (e.g. "github:123").
+func (c *Client) GetUserIdentities(ctx context.Context, userID string) ([]string, error) {
+	return c.rdb.SMembers(ctx, "users:"+userID+":identities").Result()
+}
+
+// UnlinkIdentity removes a provider identity from a user.
+func (c *Client) UnlinkIdentity(ctx context.Context, userID, provider, providerUserID string) error {
+	pipe := c.rdb.Pipeline()
+	pipe.Del(ctx, "identities:"+provider+":"+providerUserID)
+	pipe.SRem(ctx, "users:"+userID+":identities", provider+":"+providerUserID)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// ClaimNameIndex atomically claims a display name for a user. Returns true if
+// the name was successfully claimed (or was already owned by the same user).
+func (c *Client) ClaimNameIndex(ctx context.Context, name, userID string) (bool, error) {
+	key := "name_index:" + strings.ToLower(name)
+	ok, err := c.rdb.SetNX(ctx, key, userID, 0).Result()
+	if err != nil {
+		return false, err
+	}
+	if ok {
+		return true, nil
+	}
+	// Key exists — check if it's already ours (e.g. case change).
+	owner, err := c.rdb.Get(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	if owner == userID {
+		return true, nil
+	}
+	return false, nil
+}
+
+// DeleteNameIndex releases a display name.
+func (c *Client) DeleteNameIndex(ctx context.Context, name string) error {
+	return c.rdb.Del(ctx, "name_index:"+strings.ToLower(name)).Err()
+}
+
+// SeedNameIndexes scans all user hashes and creates missing name_index entries.
+// This is an idempotent migration that runs at startup so that the uniqueness
+// constraint works for users created before the name index was introduced.
+func (c *Client) SeedNameIndexes(ctx context.Context) error {
+	var cursor uint64
+	for {
+		keys, next, err := c.rdb.Scan(ctx, cursor, "users:*", 100).Result()
+		if err != nil {
+			return fmt.Errorf("scan users: %w", err)
+		}
+		for _, key := range keys {
+			// Skip sub-keys like users:{id}:identities, users:{id}:sessions, etc.
+			if strings.Count(key, ":") != 1 {
+				continue
+			}
+			name, err := c.rdb.HGet(ctx, key, "name").Result()
+			if err != nil || name == "" {
+				continue
+			}
+			id, err := c.rdb.HGet(ctx, key, "id").Result()
+			if err != nil || id == "" {
+				continue
+			}
+			// SetNX — only creates if not already claimed.
+			c.rdb.SetNX(ctx, "name_index:"+strings.ToLower(name), id, 0) //nolint:errcheck
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
+}
+
+// UpdateUserName updates the display name on the user hash and all active sessions.
+// Expired session tokens are pruned from the tracking set.
+func (c *Client) UpdateUserName(ctx context.Context, userID, newName string) error {
+	if err := c.rdb.HSet(ctx, "users:"+userID, "name", newName).Err(); err != nil {
+		return err
+	}
+
+	setKey := "users:" + userID + ":sessions"
+	tokens, _ := c.rdb.SMembers(ctx, setKey).Result()
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	pipe := c.rdb.Pipeline()
+	var stale []string
+	for _, token := range tokens {
+		exists, _ := c.rdb.Exists(ctx, "sessions:"+token).Result()
+		if exists == 0 {
+			stale = append(stale, token)
+			continue
+		}
+		pipe.HSet(ctx, "sessions:"+token, "name", newName)
+	}
+	// Prune expired session tokens from the tracking set.
+	for _, token := range stale {
+		pipe.SRem(ctx, setKey, token)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// DeleteUserSessions removes all tracked sessions for a user.
+func (c *Client) DeleteUserSessions(ctx context.Context, userID string) error {
+	setKey := "users:" + userID + ":sessions"
+	tokens, err := c.rdb.SMembers(ctx, setKey).Result()
+	if err != nil {
+		return err
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+	pipe := c.rdb.Pipeline()
+	for _, token := range tokens {
+		pipe.Del(ctx, "sessions:"+token)
+	}
+	pipe.Del(ctx, setKey)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+// DeleteUser cascade-removes all data associated with a user account.
+func (c *Client) DeleteUser(ctx context.Context, userID string) error {
+	// Collect user data needed for cleanup.
+	userKey := "users:" + userID
+	vals, err := c.rdb.HGetAll(ctx, userKey).Result()
+	if err != nil {
+		return fmt.Errorf("get user: %w", err)
+	}
+
+	identities, _ := c.rdb.SMembers(ctx, "users:"+userID+":identities").Result()
+
+	// Remove all sessions first.
+	_ = c.DeleteUserSessions(ctx, userID)
+
+	pipe := c.rdb.Pipeline()
+
+	// Identity mappings.
+	for _, ident := range identities {
+		pipe.Del(ctx, "identities:"+ident)
+	}
+	pipe.Del(ctx, "users:"+userID+":identities")
+
+	// Email index.
+	if email := vals["email"]; email != "" {
+		pipe.Del(ctx, "email_index:"+email)
+	}
+
+	// Name index.
+	if name := vals["name"]; name != "" {
+		pipe.Del(ctx, "name_index:"+strings.ToLower(name))
+	}
+
+	// Password, push subscriptions, mute.
+	pipe.Del(ctx, "users:"+userID+":password")
+	pipe.Del(ctx, "users:"+userID+":push_subscriptions")
+	pipe.Del(ctx, "users:"+userID+":mute_until")
+
+	// Remove from all rooms.
+	roomIDs, _ := c.rdb.ZRange(ctx, "rooms", 0, -1).Result()
+	for _, roomID := range roomIDs {
+		pipe.SRem(ctx, "rooms:"+roomID+":access", userID)
+		pipe.ZRem(ctx, "rooms:"+roomID+":members", userID)
+		pipe.Del(ctx, "users:"+userID+":rooms:"+roomID+":last_active")
+		pipe.Del(ctx, "users:"+userID+":rooms:"+roomID+":viewing")
+	}
+
+	// User hash itself.
+	pipe.Del(ctx, userKey)
+
+	_, err = pipe.Exec(ctx)
 	return err
 }
 

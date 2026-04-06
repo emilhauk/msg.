@@ -45,6 +45,7 @@ internal/
                                #   hydrateMessages() — user+unfurl+reactions per message
                                #   sendPushNotifications() — async Web Push after save
     notifications.go           # Push subscribe/unsubscribe, mute, VAPID key, room members
+    profile.go                 # GET/PATCH/DELETE /user/profile; POST /user/identities/{provider}/disconnect
     reactions.go               # POST /rooms/{id}/messages/{msgID}/reactions — toggle, SSE broadcast
     upload.go                  # GET /rooms/{id}/upload-url — presigned S3 PUT (optional)
     sse.go                     # GET /rooms/{id}/events — Redis Pub/Sub → SSE fan-out
@@ -73,6 +74,7 @@ web/
     reactions.html             # Reactions bar partial (used standalone for SSE reaction events)
     history.html               # Infinite-scroll history partial (sentinel + messages)
     unfurl.html                # Link preview card partial
+    profile.html               # Profile section partial (lazy-loaded in settings dialog via HTMX)
     login.html                 # Login page (GitHub button; optional password form via PasswordAuthEnabled)
     error.html                 # Error page
   static/
@@ -120,6 +122,10 @@ POST /settings/mute                        — set mute duration (1h/8h/24h/168h
 DELETE /settings/mute                      — clear mute
 
 GET  /user/events                          — user-level SSE stream (unread badges, future cross-room events)
+GET  /user/profile                         — profile section partial (HTMX, lazy-loaded in settings dialog)
+PATCH /user/profile                        — update display name (unique; re-renders profile partial)
+POST /user/profile/delete                  — delete account (requires confirmation="DELETE"); HX-Redirect → /login
+POST /user/identities/{provider}/disconnect — unlink OAuth provider (refused if last auth method)
 
 GET  /sw.js                                — Service Worker (root scope; no-cache)
 GET  /static/*                             — embedded static files (immutable cache)
@@ -137,7 +143,9 @@ users:{uuid}                            Hash    id, name, avatar_url, email, cre
 users:{uuid}:identities                 Set     "{provider}:{providerUserID}" members (no TTL)
 users:{uuid}:push_subscriptions         Hash    endpoint → subscriptionJSON (no TTL)
 users:{uuid}:mute_until                 String  unix ms timestamp or "forever"; TTL = mute duration (or none)
+users:{uuid}:sessions                   Set     session tokens for this user (no TTL; for cascade delete)
 identities:{provider}:{providerUserID}  String  canonical uuid (no TTL)
+name_index:{lowercase_name}             String  canonical uuid (no TTL; for display name uniqueness)
 rooms                                   ZSet    room IDs scored by creation time (unix seconds)
 rooms:{id}                              Hash    id, name
 rooms:{id}:messages                     ZSet    message IDs scored by created_at (unix ms); cleaned on write
