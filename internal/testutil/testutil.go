@@ -183,6 +183,20 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 	mux.Handle("POST /rooms/{id}/inactive", authMW(http.HandlerFunc(notificationsHandler.HandleRoomInactive)))
 	mux.Handle("GET /user/events", authMW(http.HandlerFunc(sseHandler.HandleUserSSE)))
 
+	// User profile routes.
+	profileHandler := &handler.ProfileHandler{
+		Redis:         rc,
+		Renderer:      renderer,
+		SessionSecret: secret,
+		Secure:        false,
+		GitHubEnabled: true,
+		GoogleEnabled: true,
+	}
+	mux.Handle("GET /user/profile", authMW(http.HandlerFunc(profileHandler.HandleProfile)))
+	mux.Handle("PATCH /user/profile", authMW(http.HandlerFunc(profileHandler.HandleUpdateName)))
+	mux.Handle("POST /user/profile/delete", authMW(http.HandlerFunc(profileHandler.HandleDelete)))
+	mux.Handle("POST /user/identities/{provider}/disconnect", authMW(http.HandlerFunc(profileHandler.HandleDisconnect)))
+
 	// Push notification routes.
 	mux.HandleFunc("GET /push/vapid-public-key", notificationsHandler.HandleVAPIDPublicKey)
 	mux.Handle("POST /push/subscribe", authMW(http.HandlerFunc(notificationsHandler.HandleSubscribe)))

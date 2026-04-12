@@ -38,7 +38,11 @@ func (h *RoomsHandler) HandleRoot(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 	rooms, err := h.Redis.GetAccessibleRooms(r.Context(), user.ID)
 	if err == nil && len(rooms) > 0 {
-		http.Redirect(w, r, "/rooms/"+rooms[0].ID, http.StatusFound)
+		dest := "/rooms/" + rooms[0].ID
+		if q := r.URL.RawQuery; q != "" {
+			dest += "?" + q
+		}
+		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
 	h.Renderer.Render(w, http.StatusOK, "no-rooms.html", map[string]any{

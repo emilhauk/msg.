@@ -210,11 +210,40 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If the user is already logged in, this is a "connect provider" flow.
+	if existingUser := h.resolveExistingSession(r); existingUser != nil {
+		identityOwner, _ := h.Redis.GetUserByIdentity(r.Context(), identity.Provider, identity.ProviderUserID)
+		if identityOwner != nil && identityOwner.ID != existingUser.ID {
+			http.Redirect(w, r, "/?error=identity_taken", http.StatusFound)
+			return
+		}
+		if identityOwner == nil {
+			if err := h.Redis.LinkIdentity(r.Context(), existingUser.ID, identity.Provider, identity.ProviderUserID); err != nil {
+				http.Error(w, "failed to link identity", http.StatusInternalServerError)
+				return
+			}
+		}
+		http.Redirect(w, r, "/?settings=profile", http.StatusFound)
+		return
+	}
+
 	if err := h.createSession(r.Context(), w, identity); err != nil {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, "/rooms/bemro", http.StatusFound)
+}
+
+// resolveExistingSession checks if the request has a valid session cookie.
+// Returns the user if logged in, nil otherwise. Used to detect the "connect
+// provider" flow in HandleCallback.
+func (h *Handler) resolveExistingSession(r *http.Request) *model.User {
+	token, err := TokenFromRequest(r, h.SessionSecret)
+	if err != nil {
+		return nil
+	}
+	user, _ := h.Redis.GetSession(r.Context(), token)
+	return user
 }
 
 // HandleLogout deletes the session and clears the cookie.
@@ -252,9 +281,8 @@ func (h *Handler) createSession(ctx context.Context, w http.ResponseWriter, iden
 			return fmt.Errorf("link identity: %w", err)
 		}
 	} else {
-		// Known identity — refresh display name and avatar from the provider
-		// in case the user has updated their profile since last login.
-		user.Name = identity.Name
+		// Known identity — refresh avatar from the provider but preserve the
+		// user-chosen display name (editable via profile settings).
 		user.AvatarURL = identity.AvatarURL
 		if err := h.Redis.UpsertUser(ctx, *user); err != nil {
 			return fmt.Errorf("upsert user: %w", err)

@@ -68,6 +68,11 @@ func main() {
 		log.Fatal().Err(err).Msg("seed room")
 	}
 
+	// Ensure all existing users have a name_index entry for uniqueness checks.
+	if err := redis.SeedNameIndexes(context.Background()); err != nil {
+		log.Warn().Err(err).Msg("seed name indexes")
+	}
+
 	// Templates.
 	webSubFS, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -151,6 +156,15 @@ func main() {
 		Redis:          redis,
 		Push:           pushSender,
 		VAPIDPublicKey: vapidCfg.VAPIDPublicKey,
+	}
+
+	profileHandler := &handler.ProfileHandler{
+		Redis:         redis,
+		Renderer:      renderer,
+		SessionSecret: sessionSecret,
+		Secure:        strings.HasPrefix(baseURL, "https://"),
+		GitHubEnabled: os.Getenv("GITHUB_CLIENT_ID") != "",
+		GoogleEnabled: os.Getenv("GOOGLE_CLIENT_ID") != "",
 	}
 
 	secure := strings.HasPrefix(baseURL, "https://")
@@ -249,6 +263,12 @@ func main() {
 	mux.Handle("POST /rooms/{id}/active", authMW(http.HandlerFunc(notificationsHandler.HandleRoomActive)))
 	mux.Handle("POST /rooms/{id}/inactive", authMW(http.HandlerFunc(notificationsHandler.HandleRoomInactive)))
 	mux.Handle("GET /user/events", authMW(http.HandlerFunc(sseHandler.HandleUserSSE)))
+
+	// User profile routes.
+	mux.Handle("GET /user/profile", authMW(http.HandlerFunc(profileHandler.HandleProfile)))
+	mux.Handle("PATCH /user/profile", authMW(http.HandlerFunc(profileHandler.HandleUpdateName)))
+	mux.Handle("POST /user/profile/delete", authMW(http.HandlerFunc(profileHandler.HandleDelete)))
+	mux.Handle("POST /user/identities/{provider}/disconnect", authMW(http.HandlerFunc(profileHandler.HandleDisconnect)))
 
 	// Push notification routes.
 	mux.HandleFunc("GET /push/vapid-public-key", notificationsHandler.HandleVAPIDPublicKey)

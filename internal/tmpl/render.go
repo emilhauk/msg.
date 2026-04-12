@@ -405,6 +405,16 @@ func New(fsys fs.FS) (*Renderer, error) {
 		r.templates[name] = t
 	}
 
+	// profile.html — user profile section, loaded lazily in settings dialog.
+	{
+		name := "profile.html"
+		t, err := template.New(name).Funcs(funcMap).ParseFS(fsys, "templates/profile.html")
+		if err != nil {
+			return nil, fmt.Errorf("tmpl: parse partial profile.html: %w", err)
+		}
+		r.templates[name] = t
+	}
+
 	return r, nil
 }
 
