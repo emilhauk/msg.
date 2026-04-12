@@ -130,6 +130,9 @@ func (c *Client) CreateUser(ctx context.Context, user model.User) error {
 	).Err(); err != nil {
 		return err
 	}
+	// Best-effort name index claim. The OAuth flow and createuser CLI pre-claim
+	// names with proper uniqueness enforcement; this SetNX is a safety net for
+	// direct callers (e.g. tests).
 	if user.Name != "" {
 		c.rdb.SetNX(ctx, "name_index:"+strings.ToLower(user.Name), user.ID, 0) //nolint:errcheck
 	}
@@ -192,13 +195,20 @@ func (c *Client) GetUsers(ctx context.Context, ids []string) (map[string]*model.
 // GetUserByIdentity looks up the canonical user UUID for a given OAuth identity
 // (provider + provider-scoped user ID), then retrieves the full user record.
 // Returns nil without error when the identity has not been registered before.
+// Handles both Hash keys (new format) and legacy String keys (pre-migration).
 func (c *Client) GetUserByIdentity(ctx context.Context, provider, providerUserID string) (*model.User, error) {
-	canonicalID, err := c.rdb.Get(ctx, "identities:"+provider+":"+providerUserID).Result()
-	if err == goredis.Nil {
-		return nil, nil
-	}
+	key := "identities:" + provider + ":" + providerUserID
+	// Try Hash format first (new format stores user_id as a hash field).
+	canonicalID, err := c.rdb.HGet(ctx, key, "user_id").Result()
 	if err != nil {
-		return nil, fmt.Errorf("redis: get identity: %w", err)
+		// Key might be a legacy String or might not exist at all.
+		canonicalID, err = c.rdb.Get(ctx, key).Result()
+		if err == goredis.Nil {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("redis: get identity: %w", err)
+		}
 	}
 	return c.GetUser(ctx, canonicalID)
 }
@@ -240,17 +250,26 @@ func (c *Client) GetUserPassword(ctx context.Context, userID string) (string, er
 }
 
 // LinkIdentity atomically records that provider:providerUserID maps to the
-// canonical userID and adds the identity string to the user's identity set.
-func (c *Client) LinkIdentity(ctx context.Context, userID, provider, providerUserID string) error {
+// canonical userID (with provider name/avatar) and adds the identity string
+// to the user's identity set.
+func (c *Client) LinkIdentity(ctx context.Context, userID, provider, providerUserID, name, avatarURL string) error {
 	identityKey := "identities:" + provider + ":" + providerUserID
 	identitiesSetKey := "users:" + userID + ":identities"
 	identityMember := provider + ":" + providerUserID
 
 	pipe := c.rdb.Pipeline()
-	pipe.Set(ctx, identityKey, userID, 0) // no TTL — identity mappings are permanent
+	pipe.HSet(ctx, identityKey, "user_id", userID, "name", name, "avatar_url", avatarURL)
 	pipe.SAdd(ctx, identitiesSetKey, identityMember)
 	_, err := pipe.Exec(ctx)
 	return err
+}
+
+// UpdateIdentityProfile refreshes the provider-stored name and avatar on an
+// existing identity hash without touching the user_id field.
+func (c *Client) UpdateIdentityProfile(ctx context.Context, provider, providerUserID, name, avatarURL string) error {
+	return c.rdb.HSet(ctx, "identities:"+provider+":"+providerUserID,
+		"name", name, "avatar_url", avatarURL,
+	).Err()
 }
 
 // GetUserIdentities returns all identity strings for a user (e.g. "github:123").
@@ -265,6 +284,108 @@ func (c *Client) UnlinkIdentity(ctx context.Context, userID, provider, providerU
 	pipe.SRem(ctx, "users:"+userID+":identities", provider+":"+providerUserID)
 	_, err := pipe.Exec(ctx)
 	return err
+}
+
+// GetIdentityProfiles returns the provider-stored name and avatar for each of
+// the user's linked OAuth identities.
+func (c *Client) GetIdentityProfiles(ctx context.Context, userID string) ([]model.IdentityDetail, error) {
+	members, err := c.rdb.SMembers(ctx, "users:"+userID+":identities").Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return nil, nil
+	}
+	pipe := c.rdb.Pipeline()
+	cmds := make([]*goredis.MapStringStringCmd, len(members))
+	for i, m := range members {
+		cmds[i] = pipe.HGetAll(ctx, "identities:"+m)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != goredis.Nil {
+		return nil, fmt.Errorf("redis: get identity profiles: %w", err)
+	}
+	var details []model.IdentityDetail
+	for i, cmd := range cmds {
+		vals, err := cmd.Result()
+		if err != nil || len(vals) == 0 {
+			continue
+		}
+		parts := strings.SplitN(members[i], ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		details = append(details, model.IdentityDetail{
+			Provider:       parts[0],
+			ProviderUserID: parts[1],
+			Name:           vals["name"],
+			AvatarURL:      vals["avatar_url"],
+		})
+	}
+	return details, nil
+}
+
+// UpdateUserAvatar updates the avatar URL on the user hash and all active sessions.
+func (c *Client) UpdateUserAvatar(ctx context.Context, userID, newAvatarURL string) error {
+	if err := c.rdb.HSet(ctx, "users:"+userID, "avatar_url", newAvatarURL).Err(); err != nil {
+		return err
+	}
+
+	setKey := "users:" + userID + ":sessions"
+	tokens, _ := c.rdb.SMembers(ctx, setKey).Result()
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	pipe := c.rdb.Pipeline()
+	var stale []string
+	for _, token := range tokens {
+		exists, _ := c.rdb.Exists(ctx, "sessions:"+token).Result()
+		if exists == 0 {
+			stale = append(stale, token)
+			continue
+		}
+		pipe.HSet(ctx, "sessions:"+token, "avatar_url", newAvatarURL)
+	}
+	for _, token := range stale {
+		pipe.SRem(ctx, setKey, token)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// MigrateIdentityKeys converts legacy String identity keys to Hash format.
+// Old format: identities:{provider}:{id} → String(userID)
+// New format: identities:{provider}:{id} → Hash{user_id, name, avatar_url}
+// This is idempotent and safe to run at startup.
+func (c *Client) MigrateIdentityKeys(ctx context.Context) error {
+	var cursor uint64
+	for {
+		keys, next, err := c.rdb.Scan(ctx, cursor, "identities:*", 100).Result()
+		if err != nil {
+			return fmt.Errorf("scan identities: %w", err)
+		}
+		for _, key := range keys {
+			keyType, err := c.rdb.Type(ctx, key).Result()
+			if err != nil || keyType != "string" {
+				continue // already a Hash or error — skip
+			}
+			userID, err := c.rdb.Get(ctx, key).Result()
+			if err != nil {
+				continue
+			}
+			pipe := c.rdb.Pipeline()
+			pipe.Del(ctx, key)
+			pipe.HSet(ctx, key, "user_id", userID, "name", "", "avatar_url", "")
+			if _, err := pipe.Exec(ctx); err != nil {
+				log.Warn().Err(err).Str("key", key).Msg("migrate identity key")
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
 }
 
 // ClaimNameIndex atomically claims a display name for a user. Returns true if

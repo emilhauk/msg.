@@ -10,6 +10,24 @@
       <h3 class="settings-section__title">Profile</h3>
     </div>
 
+    {{/* ---- Avatar picker ---- */}}
+    <div class="settings-field">
+      <span class="settings-field__label">Avatar</span>
+      <div class="settings-avatar-picker">
+        {{range .Identities}}{{if and .Connected .ProviderAvatar}}
+        <form class="settings-avatar-option" hx-patch="/user/avatar" hx-target="#profile-section" hx-swap="outerHTML">
+          <input type="hidden" name="avatar_url" value="{{.ProviderAvatar}}">
+          <button type="submit" class="settings-avatar-btn{{if eq .ProviderAvatar $.AvatarURL}} settings-avatar-btn--active{{end}}" aria-label="Use {{.ProviderLabel}} avatar">
+            <img class="settings-avatar-img" src="{{.ProviderAvatar}}" alt="{{.ProviderLabel}} avatar" width="48" height="48">
+          </button>
+          <span class="settings-avatar-label">{{.ProviderLabel}}</span>
+        </form>
+        {{end}}{{end}}
+      </div>
+      {{if .AvatarSuccess}}<p class="settings-field__success">Avatar updated</p>{{end}}
+    </div>
+
+    {{/* ---- Display name ---- */}}
     <form class="settings-field" hx-patch="/user/profile" hx-target="#profile-section" hx-swap="outerHTML">
       <label class="settings-field__label" for="display-name">Display name</label>
       <div class="settings-field__row">
@@ -19,6 +37,13 @@
       </div>
       {{if .NameError}}<p class="settings-field__error">{{.NameError}}</p>{{end}}
       {{if .NameSuccess}}<p class="settings-field__success">Name updated</p>{{end}}
+
+      {{/* Name suggestions from connected providers */}}
+      {{range .Identities}}{{if and .Connected .ProviderName (ne .ProviderName $.Name)}}
+      <button type="button" class="settings-name-suggestion" onclick="document.getElementById('display-name').value=this.dataset.name;document.getElementById('display-name').focus()" data-name="{{.ProviderName}}">
+        Use <strong>{{.ProviderName}}</strong> <span class="settings-name-suggestion__from">from {{.ProviderLabel}}</span>
+      </button>
+      {{end}}{{end}}
     </form>
 
     <div class="settings-field">

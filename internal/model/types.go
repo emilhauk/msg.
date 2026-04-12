@@ -74,6 +74,15 @@ type Unfurl struct {
 	IsShorts bool `json:"is_shorts,omitempty"`
 }
 
+// IdentityDetail holds provider-scoped identity data including the provider's
+// name and avatar for the user. Assembled per-request from Redis identity hashes.
+type IdentityDetail struct {
+	Provider       string
+	ProviderUserID string
+	Name           string
+	AvatarURL      string
+}
+
 // RoomMemberStatus enriches a User with room-specific presence info for the
 // room panel. Assembled per-request; never stored in Redis.
 type RoomMemberStatus struct {

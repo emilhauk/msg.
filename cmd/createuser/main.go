@@ -81,9 +81,21 @@ func main() {
 
 	// Create the canonical user record.
 	userID := uuid.New().String()
+	trimmedName := strings.TrimSpace(*name)
+
+	// Claim the display name. Fail if already taken.
+	claimed, err := rc.ClaimNameIndex(ctx, trimmedName, userID)
+	if err != nil {
+		log.Fatalf("claim name index: %v", err)
+	}
+	if !claimed {
+		fmt.Fprintf(os.Stderr, "error: display name %q is already taken\n", trimmedName)
+		os.Exit(1)
+	}
+
 	user := model.User{
 		ID:        userID,
-		Name:      strings.TrimSpace(*name),
+		Name:      trimmedName,
 		Email:     normalizedEmail,
 		CreatedAt: strconv.FormatInt(time.Now().UnixMilli(), 10),
 	}

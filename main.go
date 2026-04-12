@@ -73,6 +73,11 @@ func main() {
 		log.Warn().Err(err).Msg("seed name indexes")
 	}
 
+	// Migrate legacy String identity keys to Hash format.
+	if err := redis.MigrateIdentityKeys(context.Background()); err != nil {
+		log.Warn().Err(err).Msg("migrate identity keys")
+	}
+
 	// Templates.
 	webSubFS, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -267,6 +272,7 @@ func main() {
 	// User profile routes.
 	mux.Handle("GET /user/profile", authMW(http.HandlerFunc(profileHandler.HandleProfile)))
 	mux.Handle("PATCH /user/profile", authMW(http.HandlerFunc(profileHandler.HandleUpdateName)))
+	mux.Handle("PATCH /user/avatar", authMW(http.HandlerFunc(profileHandler.HandleUpdateAvatar)))
 	mux.Handle("POST /user/profile/delete", authMW(http.HandlerFunc(profileHandler.HandleDelete)))
 	mux.Handle("POST /user/identities/{provider}/disconnect", authMW(http.HandlerFunc(profileHandler.HandleDisconnect)))
 

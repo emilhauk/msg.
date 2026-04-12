@@ -280,8 +280,8 @@ func TestProfile_DisconnectProvider(t *testing.T) {
 	user := model.User{ID: "user-multi", Name: "Multi", Email: "multi@example.com"}
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), user))
 	// Link two identities so disconnect is allowed.
-	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), user.ID, "github", "gh-123"))
-	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), user.ID, "google", "g-456"))
+	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), user.ID, "github", "gh-123", "GitHub User", "https://github.com/avatar.png"))
+	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), user.ID, "google", "g-456", "Google User", "https://google.com/avatar.png"))
 
 	b := newBrowser(t)
 	page := authPage(t, b, ts, user, room)
@@ -316,7 +316,7 @@ func TestProfile_DisconnectLastProviderBlocked(t *testing.T) {
 
 	user := model.User{ID: "user-single", Name: "Single", Email: "single@example.com"}
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), user))
-	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), user.ID, "github", "gh-only"))
+	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), user.ID, "github", "gh-only", "GH Only", ""))
 
 	b := newBrowser(t)
 	page := authPage(t, b, ts, user, room)
@@ -434,10 +434,10 @@ func TestProfile_CannotDisconnectOtherUserProvider(t *testing.T) {
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
 	require.NoError(t, ts.Redis.CreateUser(context.Background(), bob))
 	// Alice has github + google.
-	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), alice.ID, "github", "a-gh"))
-	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), alice.ID, "google", "a-g"))
+	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), alice.ID, "github", "a-gh", "Alice GH", ""))
+	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), alice.ID, "google", "a-g", "Alice G", ""))
 	// Bob has github.
-	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), bob.ID, "github", "b-gh"))
+	require.NoError(t, ts.Redis.LinkIdentity(context.Background(), bob.ID, "github", "b-gh", "Bob GH", ""))
 
 	ts.GrantAccess(t, room, alice.ID)
 

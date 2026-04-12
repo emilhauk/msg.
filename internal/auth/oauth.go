@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/emilhauk/msg/internal/model"
 	redisclient "github.com/emilhauk/msg/internal/redis"
 	"github.com/google/uuid"
@@ -218,10 +220,13 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if identityOwner == nil {
-			if err := h.Redis.LinkIdentity(r.Context(), existingUser.ID, identity.Provider, identity.ProviderUserID); err != nil {
+			if err := h.Redis.LinkIdentity(r.Context(), existingUser.ID, identity.Provider, identity.ProviderUserID, identity.Name, identity.AvatarURL); err != nil {
 				http.Error(w, "failed to link identity", http.StatusInternalServerError)
 				return
 			}
+		} else {
+			// Refresh provider-stored name/avatar on existing identity.
+			_ = h.Redis.UpdateIdentityProfile(r.Context(), identity.Provider, identity.ProviderUserID, identity.Name, identity.AvatarURL)
 		}
 		http.Redirect(w, r, "/?settings=profile", http.StatusFound)
 		return
@@ -267,9 +272,15 @@ func (h *Handler) createSession(ctx context.Context, w http.ResponseWriter, iden
 
 	if user == nil {
 		// First time we see this identity — create a new canonical user.
+		userID := uuid.New().String()
+
+		// Claim a unique display name. The provider name is preferred, but if
+		// another user already has it we append a numeric suffix.
+		displayName := uniqueDisplayName(ctx, identity.Name, userID, h.Redis)
+
 		user = &model.User{
-			ID:        uuid.New().String(),
-			Name:      identity.Name,
+			ID:        userID,
+			Name:      displayName,
 			AvatarURL: identity.AvatarURL,
 			Email:     identity.Email,
 			CreatedAt: strconv.FormatInt(time.Now().UnixMilli(), 10),
@@ -277,12 +288,13 @@ func (h *Handler) createSession(ctx context.Context, w http.ResponseWriter, iden
 		if err := h.Redis.CreateUser(ctx, *user); err != nil {
 			return fmt.Errorf("create user: %w", err)
 		}
-		if err := h.Redis.LinkIdentity(ctx, user.ID, identity.Provider, identity.ProviderUserID); err != nil {
+		if err := h.Redis.LinkIdentity(ctx, user.ID, identity.Provider, identity.ProviderUserID, identity.Name, identity.AvatarURL); err != nil {
 			return fmt.Errorf("link identity: %w", err)
 		}
 	} else {
-		// Known identity — refresh avatar from the provider but preserve the
-		// user-chosen display name (editable via profile settings).
+		// Known identity — refresh the provider-stored name and avatar on the
+		// identity hash, and update the user's displayed avatar from the provider.
+		_ = h.Redis.UpdateIdentityProfile(ctx, identity.Provider, identity.ProviderUserID, identity.Name, identity.AvatarURL)
 		user.AvatarURL = identity.AvatarURL
 		if err := h.Redis.UpsertUser(ctx, *user); err != nil {
 			return fmt.Errorf("upsert user: %w", err)
@@ -303,6 +315,33 @@ func (h *Handler) createSession(ctx context.Context, w http.ResponseWriter, iden
 	}
 	SetCookie(w, signed, h.secure())
 	return nil
+}
+
+// uniqueDisplayName claims a unique display name for a new user. It tries the
+// base name first, then appends numeric suffixes (1–99), and finally falls back
+// to a UUID prefix to guarantee uniqueness.
+func uniqueDisplayName(ctx context.Context, baseName, userID string, redis *redisclient.Client) string {
+	if baseName == "" {
+		baseName = "User"
+	}
+	// Try the exact provider name first.
+	if ok, _ := redis.ClaimNameIndex(ctx, baseName, userID); ok {
+		return baseName
+	}
+	// Try numeric suffixes.
+	for i := 1; i <= 99; i++ {
+		candidate := baseName + strconv.Itoa(i)
+		if ok, _ := redis.ClaimNameIndex(ctx, candidate, userID); ok {
+			return candidate
+		}
+	}
+	// Fallback: use the first 8 chars of the UUID.
+	fallback := baseName + "-" + userID[:8]
+	if ok, _ := redis.ClaimNameIndex(ctx, fallback, userID); ok {
+		return fallback
+	}
+	log.Warn().Str("baseName", baseName).Str("userID", userID).Msg("could not claim unique display name")
+	return fallback
 }
 
 // exchangeGitHubCode exchanges an authorization code for an access token.

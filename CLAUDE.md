@@ -124,6 +124,7 @@ DELETE /settings/mute                      — clear mute
 GET  /user/events                          — user-level SSE stream (unread badges, future cross-room events)
 GET  /user/profile                         — profile section partial (HTMX, lazy-loaded in settings dialog)
 PATCH /user/profile                        — update display name (unique; re-renders profile partial)
+PATCH /user/avatar                         — update avatar from linked provider (validates against identity profiles)
 POST /user/profile/delete                  — delete account (requires confirmation="DELETE"); HX-Redirect → /login
 POST /user/identities/{provider}/disconnect — unlink OAuth provider (refused if last auth method)
 
@@ -144,7 +145,7 @@ users:{uuid}:identities                 Set     "{provider}:{providerUserID}" me
 users:{uuid}:push_subscriptions         Hash    endpoint → subscriptionJSON (no TTL)
 users:{uuid}:mute_until                 String  unix ms timestamp or "forever"; TTL = mute duration (or none)
 users:{uuid}:sessions                   Set     session tokens for this user (no TTL; for cascade delete)
-identities:{provider}:{providerUserID}  String  canonical uuid (no TTL)
+identities:{provider}:{providerUserID}  Hash    user_id, name, avatar_url (no TTL; provider profile data)
 name_index:{lowercase_name}             String  canonical uuid (no TTL; for display name uniqueness)
 rooms                                   ZSet    room IDs scored by creation time (unix seconds)
 rooms:{id}                              Hash    id, name
@@ -168,8 +169,10 @@ email_index:{email}                     String  canonical uuid; no TTL; written 
 `user_id` stored in messages, reactions, and sessions is always a **UUID v4** (the canonical user ID). OAuth provider identities (e.g. `github:12345678`) live only in the `identities:` and `users:{uuid}:identities` keys and are never used as a user identifier elsewhere.
 
 - `users:{uuid}` has no `provider` field — provider is identity-level, not user-level.
-- Name and avatar are seeded from the first provider login and refreshed on each subsequent login via the same provider.
-- Email is **sensitive**: must only be exposed by profile-page endpoints (not yet implemented). Do not include it in session hashes, SSE payloads, or any response not scoped to the authenticated user's own profile.
+- Each identity hash (`identities:{provider}:{id}`) stores the provider's `name` and `avatar_url`, refreshed on every login. The user's **profile** name and avatar are separate fields on `users:{uuid}` and are only changed explicitly through the profile settings UI.
+- On first login, the provider name is copied to the profile with uniqueness enforcement via `name_index`. If the name is already taken, a numeric suffix is appended automatically.
+- Display name uniqueness is enforced by `name_index:{lowercase_name}` — one user may have a given name at a time.
+- Email is **sensitive**: must only be exposed by profile-page endpoints. Do not include it in session hashes, SSE payloads, or any response not scoped to the authenticated user's own profile.
 - Linking a second provider is done explicitly by a logged-in user (via `redis.LinkIdentity`); there is no automatic email-based merge.
 
 ---

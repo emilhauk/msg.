@@ -194,6 +194,7 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 	}
 	mux.Handle("GET /user/profile", authMW(http.HandlerFunc(profileHandler.HandleProfile)))
 	mux.Handle("PATCH /user/profile", authMW(http.HandlerFunc(profileHandler.HandleUpdateName)))
+	mux.Handle("PATCH /user/avatar", authMW(http.HandlerFunc(profileHandler.HandleUpdateAvatar)))
 	mux.Handle("POST /user/profile/delete", authMW(http.HandlerFunc(profileHandler.HandleDelete)))
 	mux.Handle("POST /user/identities/{provider}/disconnect", authMW(http.HandlerFunc(profileHandler.HandleDisconnect)))
 
