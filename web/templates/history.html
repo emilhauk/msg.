@@ -3,7 +3,7 @@
 {{if .Data.HasMore}}
 <div class="scroll-sentinel"
      hx-get="/rooms/{{.Data.RoomID}}/messages?before={{.Data.OldestMS}}&limit=50"
-     hx-trigger="revealed"
+     hx-trigger="intersect once"
      hx-swap="beforebegin"></div>
 {{end}}
 

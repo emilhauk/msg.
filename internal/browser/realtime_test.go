@@ -155,13 +155,13 @@ func TestNoDuplicates_Scrollback(t *testing.T) {
 	page.Timeout(3 * time.Second).MustElement(".scroll-sentinel")
 
 	// Trigger the sentinel directly via htmx.trigger so we don't depend on
-	// HTMX's polling interval detecting the element in the headless viewport.
-	// This dispatches the same 'revealed' DOM event that HTMX fires internally
-	// when its setInterval determines the element is scrolled into view — the
-	// full hx-get / hx-swap="beforebegin" path is exercised identically.
+	// the IntersectionObserver firing in the headless viewport. This dispatches
+	// the same 'intersect' event that HTMX fires internally when its observer
+	// detects the element — the full hx-get / hx-swap="beforebegin" path is
+	// exercised identically.
 	page.MustEval(`() => {
 		const s = document.querySelector('.scroll-sentinel');
-		if (s) htmx.trigger(s, 'revealed');
+		if (s) htmx.trigger(s, 'intersect');
 	}`)
 
 	// Poll until all 55 articles are present (up to 8 s).
