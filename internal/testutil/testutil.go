@@ -17,6 +17,7 @@ import (
 	"github.com/emilhauk/msg/internal/middleware"
 	"github.com/emilhauk/msg/internal/model"
 	redisclient "github.com/emilhauk/msg/internal/redis"
+	"github.com/emilhauk/msg/internal/storage"
 	"github.com/emilhauk/msg/internal/tmpl"
 	"github.com/emilhauk/msg/internal/webpush"
 )
@@ -37,6 +38,7 @@ type TestServer struct {
 	Redis  *redisclient.Client
 	MR     *miniredis.Miniredis
 	Secret []byte
+	S3     *storage.S3Client // non-nil; uses a fake endpoint for URL generation only
 }
 
 // NewTestServer creates a fully wired HTTP test server backed by an in-process
@@ -71,7 +73,20 @@ func newTestServer(t *testing.T, push *webpush.Sender) *TestServer {
 		t.Fatalf("testutil: parse templates: %v", err)
 	}
 
-	mux := buildMux(rc, renderer, webFS, testSecret, push)
+	// S3 client with a fake endpoint — presign and URL helpers work locally
+	// without a real S3 backend; only actual PUT/GET would fail.
+	s3c, err := storage.NewS3Client(storage.Config{
+		Endpoint:        "http://fake-s3:9000",
+		Bucket:          "test-bucket",
+		Region:          "us-east-1",
+		AccessKeyID:     "testkey",
+		SecretAccessKey: "testsecret",
+	})
+	if err != nil {
+		t.Fatalf("testutil: create S3 client: %v", err)
+	}
+
+	mux := buildMux(rc, renderer, webFS, testSecret, push, s3c)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -80,6 +95,7 @@ func newTestServer(t *testing.T, push *webpush.Sender) *TestServer {
 		Redis:  rc,
 		MR:     mr,
 		Secret: testSecret,
+		S3:     s3c,
 	}
 }
 
@@ -120,7 +136,7 @@ func (ts *TestServer) GrantAccess(t *testing.T, roomID, userID string) {
 // buildMux mirrors the route wiring in main.go with password auth always
 // enabled and optional integrations (S3) omitted.
 // push may be nil — when non-nil it is wired into MessagesHandler for push dispatch tests.
-func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secret []byte, push *webpush.Sender) http.Handler {
+func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secret []byte, push *webpush.Sender, s3c *storage.S3Client) http.Handler {
 	passwordHandler := &auth.PasswordHandler{
 		Redis:            rc,
 		SessionSecret:    secret,
@@ -191,10 +207,12 @@ func buildMux(rc *redisclient.Client, renderer *tmpl.Renderer, webFS fs.FS, secr
 		Secure:        false,
 		GitHubEnabled: true,
 		GoogleEnabled: true,
+		S3:            s3c,
 	}
 	mux.Handle("GET /user/profile", authMW(http.HandlerFunc(profileHandler.HandleProfile)))
 	mux.Handle("PATCH /user/profile", authMW(http.HandlerFunc(profileHandler.HandleUpdateName)))
 	mux.Handle("PATCH /user/avatar", authMW(http.HandlerFunc(profileHandler.HandleUpdateAvatar)))
+	mux.Handle("GET /user/avatar/upload-url", authMW(http.HandlerFunc(profileHandler.HandleAvatarUploadURL)))
 	mux.Handle("POST /user/profile/delete", authMW(http.HandlerFunc(profileHandler.HandleDelete)))
 	mux.Handle("POST /user/identities/{provider}/disconnect", authMW(http.HandlerFunc(profileHandler.HandleDisconnect)))
 

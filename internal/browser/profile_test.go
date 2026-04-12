@@ -156,6 +156,70 @@ func TestProfile_EditName(t *testing.T) {
 	assert.Equal(t, "Alice Renamed", u.Name)
 }
 
+// TestProfile_DirtyDialogReloadsPage verifies that closing the profile dialog
+// after making a change (name edit) triggers a full page reload so the chat
+// reflects the updated profile data.
+func TestProfile_DirtyDialogReloadsPage(t *testing.T) {
+	t.Parallel()
+
+	room := profileRoomBase + "-dirty-reload"
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: room, Name: "Dirty Reload"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+
+	b := newBrowser(t)
+	page := authPage(t, b, ts, alice, room)
+
+	// Open profile dialog and change name.
+	page.MustElement("#profile-btn").MustClick()
+	page.MustElement("#open-profile-btn").MustClick()
+	nameInput := page.Timeout(5 * time.Second).MustElement("#display-name")
+	nameInput.MustSelectAllText().MustInput("Alice Reloaded")
+	page.MustElement(`#profile-section form[hx-patch="/user/profile"] button[type="submit"]`).MustClick()
+	page.Timeout(5 * time.Second).MustElement(".settings-field__success")
+
+	// Set a flag that will be cleared by a page reload.
+	page.MustEval(`() => { window.__preReload = true; }`)
+
+	// Close the dialog — should trigger a page reload because dirty=true.
+	page.MustElement("#profile-close").MustClick()
+
+	// Wait for close animation (~300ms) + reload + page render.
+	time.Sleep(3 * time.Second)
+
+	// After reload, the JS variable should be gone.
+	flag := page.MustEval(`() => window.__preReload === true`).Bool()
+	assert.False(t, flag, "page should have reloaded, clearing the JS flag")
+}
+
+// TestProfile_CleanDialogNoReload verifies that closing the profile dialog
+// without making changes does NOT reload the page.
+func TestProfile_CleanDialogNoReload(t *testing.T) {
+	t.Parallel()
+
+	room := profileRoomBase + "-clean-noreload"
+	ts := testutil.NewTestServer(t)
+	ts.SeedRoom(t, model.Room{ID: room, Name: "Clean NoReload"})
+	require.NoError(t, ts.Redis.CreateUser(context.Background(), alice))
+
+	b := newBrowser(t)
+	page := authPage(t, b, ts, alice, room)
+
+	// Set a JS flag that will be cleared on reload.
+	page.MustEval(`() => { window.__noReloadFlag = true; }`)
+
+	// Open and close profile dialog without changes.
+	page.MustElement("#profile-btn").MustClick()
+	page.MustElement("#open-profile-btn").MustClick()
+	page.Timeout(5 * time.Second).MustElement("#display-name")
+	page.MustElement("#profile-close").MustClick()
+	time.Sleep(500 * time.Millisecond) // allow close animation
+
+	// Flag should still be set — no reload occurred.
+	flag := page.MustEval(`() => window.__noReloadFlag === true`).Bool()
+	assert.True(t, flag, "page should NOT have reloaded when dialog was clean")
+}
+
 // TestProfile_EditNameDuplicate verifies that submitting a name that is already
 // taken by another user shows an error.
 func TestProfile_EditNameDuplicate(t *testing.T) {
