@@ -473,18 +473,25 @@
     var closeBtn = document.getElementById('profile-close');
     if (!dialog || !openBtn) return;
 
+    var dirty = false;
+    dialog.addEventListener('htmx:afterSwap', function (e) {
+      if (e.detail.requestConfig.verb !== 'get') dirty = true;
+    });
+
     function closeProfileDialog() {
       dialog.classList.add('is-closing');
       dialog.addEventListener('animationend', function handler() {
         dialog.removeEventListener('animationend', handler);
         dialog.classList.remove('is-closing');
         dialog.close();
+        if (dirty) window.location.reload();
       });
     }
 
     function openProfileDialog() {
       var pop = document.getElementById('profile-popover');
       if (pop) pop.hidden = true;
+      dirty = false;
       dialog.showModal();
       var ps = document.getElementById('profile-section');
       if (ps && typeof htmx !== 'undefined') htmx.trigger(ps, 'load-profile');

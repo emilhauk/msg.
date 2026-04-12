@@ -124,13 +124,16 @@ DELETE /settings/mute                      — clear mute
 GET  /user/events                          — user-level SSE stream (unread badges, future cross-room events)
 GET  /user/profile                         — profile section partial (HTMX, lazy-loaded in settings dialog)
 PATCH /user/profile                        — update display name (unique; re-renders profile partial)
-PATCH /user/avatar                         — update avatar from linked provider (validates against identity profiles)
+PATCH /user/avatar                         — update avatar (provider URL or S3 upload)
+GET  /user/avatar/upload-url               — presign S3 PUT for custom avatar (image only, 5 MiB max)
 POST /user/profile/delete                  — delete account (requires confirmation="DELETE"); HX-Redirect → /login
 POST /user/identities/{provider}/disconnect — unlink OAuth provider (refused if last auth method)
 
 GET  /sw.js                                — Service Worker (root scope; no-cache)
 GET  /static/*                             — embedded static files (immutable cache)
 GET  /static/chroma.css                    — generated syntax-highlight CSS
+
+Note: there is no `/avatar/` proxy route. Templates render `avatar_url` directly.
 ```
 
 ---
@@ -263,6 +266,19 @@ System messages:
 Allowed content types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `video/mp4`, `video/webm`. Max size: **50 MiB**.
 
 S3 key format: `rooms/{roomID}/{unixMs}-{userID}/{hash}.{ext}`
+
+### Custom Avatar Upload Flow
+
+1. `GET /user/avatar/upload-url?content_type=<type>&content_length=<bytes>` → `{ upload_url, public_url }`.
+2. Client PUTs directly to S3 using `upload_url`.
+3. Client PATCHes `/user/avatar` with `avatar_url=<public_url>` (same endpoint as provider avatars).
+4. Server appends `?v={random}` cache-buster before storing in Redis.
+
+S3 key: `avatars/{userID}` — one object per user, overwritten on re-upload. Allowed types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`. Max size: **5 MiB**.
+
+### Avatar Display
+
+Templates render `avatar_url` directly (no proxy). For custom S3 avatars, the stored URL includes a `?v={random}` suffix that changes on every avatar update, busting browser caches for all clients. Provider avatar URLs (GitHub, Google) are stored as-is.
 
 ---
 

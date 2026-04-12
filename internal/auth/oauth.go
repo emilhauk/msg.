@@ -293,12 +293,9 @@ func (h *Handler) createSession(ctx context.Context, w http.ResponseWriter, iden
 		}
 	} else {
 		// Known identity — refresh the provider-stored name and avatar on the
-		// identity hash, and update the user's displayed avatar from the provider.
+		// identity hash. The user's own avatar_url is left untouched so a
+		// custom upload (or an explicit provider choice) is preserved.
 		_ = h.Redis.UpdateIdentityProfile(ctx, identity.Provider, identity.ProviderUserID, identity.Name, identity.AvatarURL)
-		user.AvatarURL = identity.AvatarURL
-		if err := h.Redis.UpsertUser(ctx, *user); err != nil {
-			return fmt.Errorf("upsert user: %w", err)
-		}
 	}
 
 	signed, err := SignToken(h.SessionSecret)

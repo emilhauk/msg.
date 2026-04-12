@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -137,6 +138,37 @@ func (c *S3Client) DeleteObjects(ctx context.Context, keys []string) error {
 	return nil
 }
 
+// HasObject reports whether the given key exists in the bucket.
+func (c *S3Client) HasObject(ctx context.Context, key string) bool {
+	_, err := c.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	return err == nil
+}
+
+// ReadObject reads an object from the bucket and returns its data and content type.
+// Reads up to maxBytes; callers should set a reasonable limit for their use case.
+func (c *S3Client) ReadObject(ctx context.Context, key string, maxBytes int64) ([]byte, string, error) {
+	out, err := c.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("storage: get object %q: %w", key, err)
+	}
+	defer out.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(out.Body, maxBytes))
+	if err != nil {
+		return nil, "", fmt.Errorf("storage: read object %q: %w", key, err)
+	}
+	ct := ""
+	if out.ContentType != nil {
+		ct = *out.ContentType
+	}
+	return data, ct, nil
+}
+
 // ExtForContentType returns the canonical file extension (without leading dot)
 // for an accepted media MIME type, e.g. "image/jpeg" → "jpg".
 // Returns "bin" for unknown types.
@@ -166,4 +198,10 @@ func ExtForContentType(ct string) string {
 // name should already be safe (e.g. a hex string + extension).
 func MediaKey(roomID, msgPrefix, name string) string {
 	return "rooms/" + roomID + "/" + msgPrefix + "/" + name
+}
+
+// AvatarKey builds the object key for a user avatar upload.
+// Each user has exactly one avatar object; re-uploading overwrites it.
+func AvatarKey(userID string) string {
+	return "avatars/" + userID
 }
