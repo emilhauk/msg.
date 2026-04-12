@@ -23,6 +23,59 @@
           <span class="settings-avatar-label">{{.ProviderLabel}}</span>
         </form>
         {{end}}{{end}}
+        {{if .CustomAvatarURL}}
+        <form class="settings-avatar-option" hx-patch="/user/avatar" hx-target="#profile-section" hx-swap="outerHTML" style="display:none">
+          <input type="hidden" name="avatar_url" value="{{.CustomAvatarURL}}">
+          <button type="submit" class="settings-avatar-btn{{if $.IsCustomActive}} settings-avatar-btn--active{{end}}" aria-label="Use custom avatar">
+            <img class="settings-avatar-img" src="{{.CustomAvatarImg}}" alt="Custom avatar" width="48" height="48"
+                 onload="this.closest('.settings-avatar-option').style.display=''"
+                 onerror="this.closest('.settings-avatar-option').remove()">
+          </button>
+          <span class="settings-avatar-label">Custom</span>
+        </form>
+        {{end}}
+        {{if .S3Enabled}}
+        <div class="settings-avatar-option" id="avatar-upload-option">
+          <input type="file" id="avatar-file-input" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+          <button type="button" class="settings-avatar-btn settings-avatar-upload-btn" id="avatar-upload-btn"
+                  onclick="document.getElementById('avatar-file-input').click()" aria-label="Upload custom avatar">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </button>
+          <span class="settings-avatar-label" id="avatar-upload-label">Upload</span>
+        </div>
+        <script>
+        (function() {
+          var input = document.getElementById('avatar-file-input');
+          if (!input) return;
+          input.addEventListener('change', async function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            var btn = document.getElementById('avatar-upload-btn');
+            var label = document.getElementById('avatar-upload-label');
+            btn.disabled = true;
+            label.textContent = 'Uploading\u2026';
+            try {
+              var params = new URLSearchParams({content_type: file.type, content_length: file.size});
+              var resp = await fetch('/user/avatar/upload-url?' + params);
+              if (!resp.ok) throw new Error(await resp.text());
+              var data = await resp.json();
+              var putResp = await fetch(data.upload_url, {method: 'PUT', headers: {'Content-Type': file.type}, body: file});
+              if (!putResp.ok) throw new Error('Upload failed');
+              htmx.ajax('PATCH', '/user/avatar', {target: '#profile-section', swap: 'outerHTML', values: {avatar_url: data.public_url}});
+            } catch (err) {
+              label.textContent = 'Failed';
+              setTimeout(function() { label.textContent = 'Upload'; }, 2000);
+              btn.disabled = false;
+            }
+            e.target.value = '';
+          });
+        })();
+        </script>
+        {{end}}
       </div>
       {{if .AvatarSuccess}}<p class="settings-field__success">Avatar updated</p>{{end}}
     </div>

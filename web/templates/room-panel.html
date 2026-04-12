@@ -7,7 +7,7 @@
     {{range .Members}}
     <div class="room-panel__member">
       <span class="room-panel__avatar-wrap">
-        <img class="room-panel__avatar" src="/avatar/{{.User.ID}}" alt="{{.User.Name}}" width="28" height="28">
+        <img class="room-panel__avatar" src="{{.User.AvatarURL}}" alt="{{.User.Name}}" width="28" height="28">
         {{if .IsActive}}<span class="room-panel__active-dot" title="Active now"></span>{{end}}
         {{if not .NotificationsOn}}<span class="room-panel__notif-off-badge" title="Notifications off">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">

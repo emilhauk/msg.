@@ -170,6 +170,7 @@ func main() {
 		Secure:        strings.HasPrefix(baseURL, "https://"),
 		GitHubEnabled: os.Getenv("GITHUB_CLIENT_ID") != "",
 		GoogleEnabled: os.Getenv("GOOGLE_CLIENT_ID") != "",
+		S3:            s3Client,
 	}
 
 	secure := strings.HasPrefix(baseURL, "https://")
@@ -273,6 +274,7 @@ func main() {
 	mux.Handle("GET /user/profile", authMW(http.HandlerFunc(profileHandler.HandleProfile)))
 	mux.Handle("PATCH /user/profile", authMW(http.HandlerFunc(profileHandler.HandleUpdateName)))
 	mux.Handle("PATCH /user/avatar", authMW(http.HandlerFunc(profileHandler.HandleUpdateAvatar)))
+	mux.Handle("GET /user/avatar/upload-url", authMW(http.HandlerFunc(profileHandler.HandleAvatarUploadURL)))
 	mux.Handle("POST /user/profile/delete", authMW(http.HandlerFunc(profileHandler.HandleDelete)))
 	mux.Handle("POST /user/identities/{provider}/disconnect", authMW(http.HandlerFunc(profileHandler.HandleDisconnect)))
 
@@ -283,9 +285,6 @@ func main() {
 	mux.Handle("GET /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleGetMute)))
 	mux.Handle("POST /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleSetMute)))
 	mux.Handle("DELETE /settings/mute", authMW(http.HandlerFunc(notificationsHandler.HandleClearMute)))
-
-	// Avatar proxy — unauthenticated; serves profile images with a stable URL and cache headers.
-	mux.Handle("GET /avatar/{userID}", &handler.AvatarHandler{Redis: redis})
 
 	// Media upload — only available when S3 is configured.
 	if s3Client != nil {
